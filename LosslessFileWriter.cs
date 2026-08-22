@@ -412,13 +412,17 @@ internal static class LosslessFileWriter
         string path,
         string directory)
     {
+        // Sharing the conversion temp suffix means this file is excluded from
+        // future scans by the same directory-traversal rule as .len.tmp,
+        // rather than needing a second dedicated exclusion.
         string backupTempPath =
             Path.Combine(
                 directory,
                 Path.GetFileName(path) +
                 "." +
                 Guid.NewGuid().ToString("N")[..12] +
-                ".bak.tmp");
+                ".bak." +
+                TempFileSuffix);
 
         try
         {

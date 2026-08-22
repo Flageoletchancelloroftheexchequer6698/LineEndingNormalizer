@@ -100,6 +100,44 @@ public sealed class BackupAndReparseWalkTests
         Assert.Equal(expectedCandidate, isCandidate);
     }
 
+    [Theory]
+    [InlineData("file.txt.abc123456789.bak.len.tmp", false)]
+    [InlineData("file.txt.ABC123456789.BAK.LEN.TMP", false)]
+    [InlineData("file.txt.bak", false)]
+    [InlineData("file.txt.tmp", true)]
+    [InlineData("file.txt", true)]
+    public void IsCandidateFile_ExcludesBackupTempFilesRegardlessOfCase(string fileName, bool expectedCandidate)
+    {
+        List<Regex> includePatterns = FilePatternMatcher.Compile(["*"]);
+
+        bool isCandidate = DirectoryTraversal.IsCandidateFile(fileName, includePatterns, null);
+
+        Assert.Equal(expectedCandidate, isCandidate);
+    }
+
+    [Fact]
+    public void AbandonedBackupTempFile_UsingRealNamingScheme_IsExcludedFromADirectoryScan()
+    {
+        using var dir = new TempDirectory();
+
+        dir.WriteFile("f.txt", "a\nb\n"u8.ToArray());
+
+        // Simulates a backup temp file left behind by a process killed
+        // mid-CreateBackup, named exactly as CreateBackup names it
+        // (<file>.<guid12>.bak.<TempFileSuffix>), not a hand-typed guess.
+        dir.WriteFile("f.txt.abc123456789.bak.len.tmp", "old\n"u8.ToArray());
+
+        List<Regex> includePatterns = FilePatternMatcher.Compile(["*"]);
+
+        var found = DirectoryTraversal.EnumerateCandidateFiles(dir.Path)
+            .Select(Path.GetFileName)
+            .Where(fileName => DirectoryTraversal.IsCandidateFile(fileName!, includePatterns, null))
+            .ToList();
+
+        Assert.Contains("f.txt", found);
+        Assert.DoesNotContain(found, f => f!.Contains(".bak.len.tmp"));
+    }
+
     [Fact]
     public void IsCandidateFile_StillHonorsIncludeAndExclude()
     {

@@ -421,8 +421,10 @@ public sealed class LosslessFileWriterTests
             NewLineNormalizer.NormalizeFile(path, LineEnding.Crlf, whatIf: false, backup: true));
 
         Assert.Equal(source, File.ReadAllBytes(path));
+
+        // The backup temp file now shares the conversion temp suffix
+        // (<file>.<guid>.bak.len.tmp), so this one glob covers both.
         Assert.Empty(Directory.GetFiles(dir.Path, "*.len.tmp"));
-        Assert.Empty(Directory.GetFiles(dir.Path, "*.bak.tmp"));
     }
 
     [Fact]
