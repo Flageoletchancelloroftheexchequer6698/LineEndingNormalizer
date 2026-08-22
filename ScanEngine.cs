@@ -4,19 +4,16 @@ using System.Text;
 namespace LineEndingNormalizer;
 
 /// <summary>
-/// Read-only file scanning shared by DetectOnly, ValidateOnly, and Convert, so
-/// all three agree on encoding, line-ending classification, and whether the
-/// requested target would change the file. Never opens, closes, or takes
-/// ownership of the stream it's given.
+/// Shared read-only scan for detection and normalization decisions.
+/// Does not own or modify the supplied stream.
 /// </summary>
 internal static class ScanEngine
 {
     private const int BufferSize = 65536;
 
     /// <summary>
-    /// Detects the encoding and scans the complete stream once to determine
-    /// line-ending classification and, when <paramref name="target"/> is
-    /// given, whether normalizing to it would change the file.
+    /// Detects encoding, classifies line endings, and optionally checks
+    /// whether normalization to <paramref name="target"/> is required.
     /// </summary>
     internal static (DetectResult? Detected, bool RequiresConversion) Scan(
         Stream stream,
@@ -48,8 +45,7 @@ internal static class ScanEngine
     }
 
     /// <summary>
-    /// Strictly decodes the stream once, classifying line endings and
-    /// checking them against <paramref name="target"/> in the same pass.
+    /// Strictly decodes and classifies the stream in one pass.
     /// </summary>
     private static (LineEndingKind Kind, bool RequiresConversion) ScanUnicode(
         Stream stream,
@@ -74,8 +70,7 @@ internal static class ScanEngine
             bool sawCr = false;
             bool pendingCr = false;
 
-            // NEL/LS/PS force conversion but are excluded from classification,
-            // matching the existing DetectOnly contract.
+            // Keep Unicode separators out of classification but require conversion.
             bool sawUnicodeLineSeparator = false;
 
             int read;
@@ -118,7 +113,7 @@ internal static class ScanEngine
                 }
             }
 
-            // Final flush rejects an incomplete trailing sequence.
+            // Reject an incomplete trailing sequence.
             decoder.GetChars([], 0, 0, chars, 0, true);
 
             if (pendingCr)
@@ -145,9 +140,8 @@ internal static class ScanEngine
     }
 
     /// <summary>
-    /// Scans raw CR/LF bytes once, classifying line endings and checking
-    /// them against <paramref name="target"/> in the same pass. Legacy files
-    /// are scanned as bytes, not decoded, to avoid decode/re-encode changes.
+    /// Classifies and checks legacy files using raw bytes to avoid
+    /// decode/re-encode changes.
     /// </summary>
     private static (LineEndingKind Kind, bool RequiresConversion) ScanBytes(
         Stream stream,
@@ -219,10 +213,12 @@ internal static class ScanEngine
     }
 
     /// <summary>
-    /// Classifies line endings from the accumulated per-kind flags. Shared by
-    /// both scan paths; previously duplicated verbatim in each.
+    /// Classifies the observed line-ending kinds.
     /// </summary>
-    private static LineEndingKind Classify(bool sawCrLf, bool sawLf, bool sawCr)
+    private static LineEndingKind Classify(
+        bool sawCrLf,
+        bool sawLf,
+        bool sawCr)
     {
         int distinctKinds =
             (sawCrLf ? 1 : 0) +
