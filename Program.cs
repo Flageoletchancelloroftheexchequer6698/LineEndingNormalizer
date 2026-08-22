@@ -492,7 +492,8 @@ internal static class Program
         string? ErrorMessage);
 
     /// <summary>
-    /// Detects before processing so reports describe the original file.
+    /// NormalizeFile's own scan runs before any write, so the detection data
+    /// it returns always describes the original file, even when converted.
     /// </summary>
     private static FileOutcome ComputeFileOutcome(
         string file,
@@ -515,24 +516,6 @@ internal static class Program
             mode == ProcessingMode.Normalize &&
             options.Backup;
 
-        DetectResult? detected = null;
-
-        if (options.Report != null)
-        {
-            try
-            {
-                detected =
-                    NewLineNormalizer.DetectFile(
-                        file,
-                        cancellationToken);
-            }
-            catch (Exception ex) when (
-                ex is not OperationCanceledException)
-            {
-                // Detection must not prevent normalization.
-            }
-        }
-
         try
         {
             NormalizeResult result =
@@ -541,6 +524,7 @@ internal static class Program
                     options.TargetLineEnding,
                     previewOnly,
                     backup,
+                    out DetectResult? detected,
                     cancellationToken);
 
             switch (result)
@@ -579,7 +563,7 @@ internal static class Program
                 Result: null,
                 ResultLabel: "Error",
                 ConsoleVisible: true,
-                detected,
+                Detected: null,
                 IsError: true,
                 ErrorMessage: ex.Message);
         }

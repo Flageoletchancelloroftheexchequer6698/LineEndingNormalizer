@@ -32,6 +32,28 @@ internal static class NewLineNormalizer
         bool backup = false,
         CancellationToken cancellationToken = default)
     {
+        return NormalizeFile(path, target, whatIf, backup, out _, cancellationToken);
+    }
+
+    /// <summary>
+    /// Same as <see cref="NormalizeFile(string, LineEnding, bool, bool, CancellationToken)"/>,
+    /// also surfacing the original (pre-conversion) detection data from the same
+    /// scan, so a caller building a report doesn't need a second scan.
+    /// </summary>
+    /// <param name="detected">
+    /// <see langword="null"/> exactly when encoding detection failed; otherwise the
+    /// exact <see cref="DetectResult"/> from the same scan that decided
+    /// <see cref="ScanEngine.ScanResult.RequiresConversion"/>, so it always describes
+    /// the original file even when a real conversion happens.
+    /// </param>
+    internal static NormalizeResult NormalizeFile(
+        string path,
+        LineEnding target,
+        bool whatIf,
+        bool backup,
+        out DetectResult? detected,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(path);
 
         if (!File.Exists(path))
@@ -49,6 +71,8 @@ internal static class NewLineNormalizer
 
         ScanEngine.ScanResult? scan =
             ScanEngine.Scan(source, target, cancellationToken);
+
+        detected = scan?.Detection;
 
         if (scan == null)
         {

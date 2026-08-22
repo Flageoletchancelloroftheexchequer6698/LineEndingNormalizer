@@ -156,6 +156,25 @@ public sealed class ReviewChangesTests
         Assert.Equal("café\r\nnaïve\r\nend\r\n", decoded);
     }
 
+    // ---- -Report double-scan elimination: NormalizeFile's out-DetectResult overload ----
+
+    [Fact]
+    public void NormalizeFile_OutDetectedOverload_ReturnsOriginalDetection()
+    {
+        using var dir = new TempDirectory();
+        byte[] source = [0xEF, 0xBB, 0xBF, .. "a\nb\n"u8];
+        string path = dir.WriteFile("f.txt", source);
+
+        NormalizeResult result = NewLineNormalizer.NormalizeFile(
+            path, LineEnding.Crlf, whatIf: false, backup: false, out DetectResult? detected);
+
+        Assert.Equal(NormalizeResult.Converted, result);
+        Assert.NotNull(detected);
+        Assert.Equal("utf-8", detected.Encoding.WebName);
+        Assert.True(detected.HasBom);
+        Assert.Equal(LineEndingKind.Lf, detected.LineEndingKind); // the *original* file's kind, not the post-conversion CRLF
+    }
+
     // ---- P2.7: -DetectOnly ----
 
     [Theory]
