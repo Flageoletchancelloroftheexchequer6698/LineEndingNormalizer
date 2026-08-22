@@ -104,8 +104,11 @@ internal static class NewLineNormalizer
     /// The detected encoding fails strict decoding of the complete file.
     /// </exception>
     public static DetectResult? DetectFile(
-        string path)
+        string path,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         ArgumentNullException.ThrowIfNull(path);
 
         using FileStream source =

@@ -59,6 +59,11 @@ internal static class Program
     private const int ExitReparsePointRoot = 5;
 
     /// <summary>
+    /// The scan was cancelled (Ctrl+C).
+    /// </summary>
+    private const int ExitCancelled = 6;
+
+    /// <summary>
     /// Serializes console output from parallel processing.
     /// </summary>
     private static readonly Lock ConsoleLock = new();
@@ -111,81 +116,105 @@ internal static class Program
             return ExitReparsePointRoot;
         }
 
-        if (options.DetectOnly)
+        using var cancellation = new CancellationTokenSource();
+
+        ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
-            // DetectOnly is strictly read-only and emits CSV to stdout.
-            return RunDetectOnly(options);
-        }
+            // Let the scan observe cancellation and unwind cleanly instead of the
+            // process being torn down mid-write.
+            e.Cancel = true;
+            cancellation.Cancel();
+        };
 
-        ProcessingMode mode =
-            options.ValidateOnly
-                ? ProcessingMode.ValidateOnly
-                : options.WhatIf
-                    ? ProcessingMode.WhatIf
-                    : ProcessingMode.Normalize;
+        Console.CancelKeyPress += cancelHandler;
 
-        var statistics = new Statistics();
-
-        Console.WriteLine("Line Ending Normalizer v1.0");
-        Console.WriteLine("Base path : {0}", options.BasePath);
-        Console.WriteLine(
-            "Patterns  : {0}",
-            string.Join(", ", options.IncludePatterns.ToArray()));
-
-        if (options.ExcludePatterns.Count > 0)
+        try
         {
+            if (options.DetectOnly)
+            {
+                // DetectOnly is strictly read-only and emits CSV to stdout.
+                return RunDetectOnly(options, cancellation.Token);
+            }
+
+            ProcessingMode mode =
+                options.ValidateOnly
+                    ? ProcessingMode.ValidateOnly
+                    : options.WhatIf
+                        ? ProcessingMode.WhatIf
+                        : ProcessingMode.Normalize;
+
+            var statistics = new Statistics();
+
+            Console.WriteLine("Line Ending Normalizer v1.0");
+            Console.WriteLine("Base path : {0}", options.BasePath);
             Console.WriteLine(
-                "Exclude   : {0}",
-                string.Join(", ", options.ExcludePatterns.ToArray()));
-        }
+                "Patterns  : {0}",
+                string.Join(", ", options.IncludePatterns.ToArray()));
 
-        Console.WriteLine(
-            "Target    : {0}",
-            options.TargetLineEnding.ToString().ToUpperInvariant());
+            if (options.ExcludePatterns.Count > 0)
+            {
+                Console.WriteLine(
+                    "Exclude   : {0}",
+                    string.Join(", ", options.ExcludePatterns.ToArray()));
+            }
 
-        if (mode == ProcessingMode.WhatIf)
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine(
-                "Mode      : Preview only (no files will be modified)");
-            Console.ResetColor();
-        }
-        else if (mode == ProcessingMode.ValidateOnly)
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine(
-                "Mode      : Validate only (no files will be modified)");
-            Console.ResetColor();
-        }
+                "Target    : {0}",
+                options.TargetLineEnding.ToString().ToUpperInvariant());
 
-        Console.WriteLine();
+            if (mode == ProcessingMode.WhatIf)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine(
+                    "Mode      : Preview only (no files will be modified)");
+                Console.ResetColor();
+            }
+            else if (mode == ProcessingMode.ValidateOnly)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine(
+                    "Mode      : Validate only (no files will be modified)");
+                Console.ResetColor();
+            }
 
-        bool reportOk =
-            RunConvertOrValidate(
-                options,
-                statistics,
+            Console.WriteLine();
+
+            bool reportOk =
+                RunConvertOrValidate(
+                    options,
+                    statistics,
+                    mode,
+                    cancellation.Token);
+
+            Console.WriteLine();
+
+            PrintSummary(statistics,
                 mode);
 
-        Console.WriteLine();
+            if (!reportOk ||
+                statistics.Errors > 0)
+            {
+                return ExitProcessingErrors;
+            }
 
-        PrintSummary(statistics,
-            mode);
+            if (options.FailOnChanges &&
+                statistics.Converted > 0)
+            {
+                return ExitChangesNeeded;
+            }
 
-        if (!reportOk ||
-            statistics.Errors > 0)
-        {
-            return ExitProcessingErrors;
+            return ExitSuccess;
         }
-
-        if (options.FailOnChanges &&
-            statistics.Converted > 0)
+        catch (OperationCanceledException)
         {
-            return ExitChangesNeeded;
+            Console.Error.WriteLine("Scan cancelled.");
+            return ExitCancelled;
         }
-
-        return ExitSuccess;
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
     }
-
 
     /// <summary>
     /// Parses command-line arguments.
@@ -473,7 +502,8 @@ internal static class Program
         string file,
         Options options,
         ProcessingMode mode,
-        Statistics statistics)
+        Statistics statistics,
+        CancellationToken cancellationToken)
     {
         statistics.IncrementChecked();
 
@@ -500,9 +530,9 @@ internal static class Program
             try
             {
                 detected =
-                    NewLineNormalizer.DetectFile(file);
+                    NewLineNormalizer.DetectFile(file, cancellationToken);
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // Report detection is best-effort.
             }
@@ -515,7 +545,8 @@ internal static class Program
                     file,
                     options.TargetLineEnding,
                     previewOnly,
-                    backup);
+                    backup,
+                    cancellationToken);
 
             switch (result)
             {
@@ -542,7 +573,7 @@ internal static class Program
                 IsError: false,
                 ErrorMessage: null);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             statistics.IncrementErrors();
 
@@ -705,7 +736,8 @@ internal static class Program
     private static bool RunConvertOrValidate(
         Options options,
         Statistics statistics,
-        ProcessingMode mode)
+        ProcessingMode mode,
+        CancellationToken cancellationToken)
     {
         var includePatterns =
             FilePatternMatcher.Compile(
@@ -752,7 +784,7 @@ internal static class Program
             Parallel.For(
                 0,
                 files.Count,
-                CreateParallelOptions(options),
+                CreateParallelOptions(options, cancellationToken),
                 i =>
                 {
                     outcomes[i] =
@@ -760,7 +792,8 @@ internal static class Program
                             files[i],
                             options,
                             mode,
-                            statistics);
+                            statistics,
+                            cancellationToken);
                 });
 
             foreach (var outcome in outcomes)
@@ -780,7 +813,7 @@ internal static class Program
         {
             Parallel.ForEach(
                 candidateFiles,
-                CreateParallelOptions(options),
+                CreateParallelOptions(options, cancellationToken),
                 file =>
                 {
                     FileOutcome outcome =
@@ -788,7 +821,8 @@ internal static class Program
                             file,
                             options,
                             mode,
-                            statistics);
+                            statistics,
+                            cancellationToken);
 
                     EmitConsole(
                         outcome,
@@ -910,7 +944,8 @@ internal static class Program
     /// Creates bounded parallel-processing options.
     /// </summary>
     internal static ParallelOptions CreateParallelOptions(
-        Options options)
+        Options options,
+        CancellationToken cancellationToken = default)
     {
         int maxDegreeOfParallelism =
             options.MaxParallelism ??
@@ -922,6 +957,7 @@ internal static class Program
 
         return new ParallelOptions
         {
+            CancellationToken = cancellationToken,
             MaxDegreeOfParallelism =
                 maxDegreeOfParallelism
         };
@@ -946,7 +982,8 @@ internal static class Program
     /// </summary>
     private static DetectOutcome ComputeDetectOutcome(
         string file,
-        Options options)
+        Options options,
+        CancellationToken cancellationToken)
     {
         string displayPath =
             FormatDisplayPath(
@@ -957,7 +994,8 @@ internal static class Program
         {
             DetectResult? result =
                 NewLineNormalizer.DetectFile(
-                    file);
+                    file,
+                    cancellationToken);
 
             return new DetectOutcome(
                 displayPath,
@@ -966,7 +1004,7 @@ internal static class Program
                 IsError: false,
                 Message: null);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new DetectOutcome(
                 displayPath,
@@ -1048,7 +1086,8 @@ internal static class Program
     /// Stdout contains CSV; diagnostics are written to stderr.
     /// </summary>
     private static int RunDetectOnly(
-        Options options)
+        Options options,
+        CancellationToken cancellationToken)
     {
         var includePatterns =
             FilePatternMatcher.Compile(
@@ -1100,13 +1139,14 @@ internal static class Program
             Parallel.For(
                 0,
                 files.Count,
-                CreateParallelOptions(options),
+                CreateParallelOptions(options, cancellationToken),
                 i =>
                 {
                     outcomes[i] =
                         ComputeDetectOutcome(
                             files[i],
-                            options);
+                            options,
+                            cancellationToken);
                 });
 
             foreach (var outcome in outcomes)
@@ -1130,13 +1170,14 @@ internal static class Program
         {
             Parallel.ForEach(
                 candidateFiles,
-                CreateParallelOptions(options),
+                CreateParallelOptions(options, cancellationToken),
                 file =>
                 {
                     DetectOutcome outcome =
                         ComputeDetectOutcome(
                             file,
-                            options);
+                            options,
+                            cancellationToken);
 
                     if (outcome.IsError)
                     {
@@ -1532,7 +1573,8 @@ internal static class Program
 
             Exit codes: 0 = clean; 1 = usage/argument error; 2 = base directory
             not found; 3 = one or more files failed to process; 4 =
-            -FailOnChanges triggered; 5 = -BasePath is a reparse point.
+            -FailOnChanges triggered; 5 = -BasePath is a reparse point; 6 =
+            cancelled (Ctrl+C).
 
             Examples:
 
