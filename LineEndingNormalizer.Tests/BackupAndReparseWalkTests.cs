@@ -84,6 +84,22 @@ public sealed class BackupAndReparseWalkTests
         Assert.Equal(expectedCandidate, isCandidate);
     }
 
+    [Theory]
+    [InlineData("file.txt.abc123.len.tmp", false)]
+    [InlineData("file.txt.abc123.LEN.TMP", false)]
+    [InlineData("file.txt.abc123.Len.Tmp", false)]
+    [InlineData("file.txt", true)]
+    [InlineData("file.txt.tmp", true)]        // plain .tmp is NOT excluded
+    [InlineData("file.len.tmpx", true)]       // near-miss suffix is NOT excluded
+    public void IsCandidateFile_ExcludesAbandonedTempFilesRegardlessOfCase(string fileName, bool expectedCandidate)
+    {
+        List<Regex> includePatterns = FilePatternMatcher.Compile(["*"]);
+
+        bool isCandidate = DirectoryTraversal.IsCandidateFile(fileName, includePatterns, null);
+
+        Assert.Equal(expectedCandidate, isCandidate);
+    }
+
     [Fact]
     public void IsCandidateFile_StillHonorsIncludeAndExclude()
     {

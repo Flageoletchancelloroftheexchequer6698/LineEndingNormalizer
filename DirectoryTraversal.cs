@@ -152,9 +152,10 @@ internal static class DirectoryTraversal
 
 
     /// <summary>
-    /// Determines whether a file matches the include/exclude rules. .bak files are always
-    /// excluded. <paramref name="fileName"/> may be a bare filename or a path relative to
-    /// the scan root, matching whatever FilePatternMatcher's patterns expect.
+    /// Determines whether a file matches the include/exclude rules. .bak files and
+    /// abandoned conversion temp files are always excluded. <paramref name="fileName"/>
+    /// may be a bare filename or a path relative to the scan root, matching whatever
+    /// FilePatternMatcher's patterns expect.
     /// </summary>
     internal static bool IsCandidateFile(
         string fileName,
@@ -164,6 +165,14 @@ internal static class DirectoryTraversal
         // Otherwise -Backup with a broad "*" include would rescan its own .bak output.
         if (fileName.EndsWith(
                 ".bak",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Never rescan abandoned conversion temp files.
+        if (fileName.EndsWith(
+                "." + LosslessFileWriter.TempFileSuffix,
                 StringComparison.OrdinalIgnoreCase))
         {
             return false;

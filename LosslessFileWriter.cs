@@ -17,6 +17,13 @@ internal static class LosslessFileWriter
     private const int BufferSize = 65536;
 
     /// <summary>
+    /// Suffix for this tool's own temporary conversion files, shared with
+    /// <see cref="DirectoryTraversal"/> so an abandoned one (left behind by
+    /// a hard process kill mid-conversion) is never rescanned as ordinary input.
+    /// </summary>
+    internal const string TempFileSuffix = "len.tmp";
+
+    /// <summary>
     /// Unicode characters recognized as line breaks during normalization.
     /// </summary>
     /// <remarks>
@@ -80,7 +87,8 @@ internal static class LosslessFileWriter
                     Path.GetFileName(path) +
                     "." +
                     Guid.NewGuid().ToString("N")[..12] +
-                    ".len.tmp");
+                    "." +
+                    TempFileSuffix);
 
             byte[] preamble =
                 encoding.GetPreamble();
