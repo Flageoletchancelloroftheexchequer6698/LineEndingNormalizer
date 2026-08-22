@@ -5,18 +5,12 @@ namespace LineEndingNormalizer;
 /// </summary>
 internal enum NormalizeResult
 {
-    /// <summary>
-    /// No rewrite was needed.
-    /// </summary>
+    /// <summary>No rewrite was needed.</summary>
     Unchanged,
 
-    /// <summary>
-    /// The file was, or would be, rewritten.
-    /// </summary>
+    /// <summary>The file was or would be rewritten.</summary>
     Converted,
 
-    /// <summary>
-    /// Encoding was unknown, so conversion was skipped.
-    /// </summary>
+    /// <summary>Encoding was unknown; conversion was skipped.</summary>
     EncodingNotDetected
 }

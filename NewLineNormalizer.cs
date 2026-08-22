@@ -1,18 +1,8 @@
 ﻿namespace LineEndingNormalizer;
 
 /// <summary>
-/// Provides methods for detecting text encodings (via <see cref="TextEncoding"/>,
-/// which covers both Unicode and, as a fallback, legacy single-byte/
-/// multi-byte encodings) and normalizing line endings while preserving
-/// the original encoding.
-///
-/// Features:
-/// - Unicode (UTF-8/16/32) and legacy encoding support
-/// - BOM preservation
-/// - Streaming conversion
-/// - Constant memory usage
-/// - Atomic replacement
-/// - File metadata preservation
+/// Detects encodings and normalizes line endings while preserving
+/// encoding and file metadata.
 /// </summary>
 internal static class NewLineNormalizer
 {
@@ -21,9 +11,7 @@ internal static class NewLineNormalizer
     #region Public API
 
     /// <summary>
-    /// Normalizes a file's line endings to <paramref name="target"/>.
-    /// Preserves the source encoding and BOM. Rewrites the file only when
-    /// conversion is required.
+    /// Normalizes a file's line endings while preserving encoding and BOM.
     /// </summary>
     public static NormalizeResult NormalizeFile(
         string path,
@@ -32,19 +20,21 @@ internal static class NewLineNormalizer
         bool backup = false,
         CancellationToken cancellationToken = default)
     {
-        return NormalizeFile(path, target, whatIf, backup, out _, cancellationToken);
+        return NormalizeFile(
+            path,
+            target,
+            whatIf,
+            backup,
+            out _,
+            cancellationToken);
     }
 
     /// <summary>
-    /// Same as <see cref="NormalizeFile(string, LineEnding, bool, bool, CancellationToken)"/>,
-    /// also surfacing the original (pre-conversion) detection data from the same
-    /// scan, so a caller building a report doesn't need a second scan.
+    /// Normalizes a file and optionally returns its original detection result.
     /// </summary>
     /// <param name="detected">
-    /// <see langword="null"/> exactly when encoding detection failed; otherwise the
-    /// exact <see cref="DetectResult"/> from the same scan that decided
-    /// <see cref="ScanEngine.ScanResult.RequiresConversion"/>, so it always describes
-    /// the original file even when a real conversion happens.
+    /// Null when encoding detection fails; otherwise the detection result from
+    /// the same scan used for the normalization decision.
     /// </param>
     internal static NormalizeResult NormalizeFile(
         string path,
@@ -58,21 +48,23 @@ internal static class NewLineNormalizer
 
         if (!File.Exists(path))
         {
-            throw new FileNotFoundException("File not found.", path);
+            throw new FileNotFoundException(
+                "File not found.",
+                path);
         }
 
-        //
-        // Reuse one open stream for detection, scanning, and conversion.
-        // This avoids redundant opens and narrows the window for external
-        // changes between processing stages.
-        //
+        // Keep one source stream through scan and conversion.
         using FileStream source =
             OpenSourceStream(path);
 
         ScanEngine.ScanResult? scan =
-            ScanEngine.Scan(source, target, cancellationToken);
+            ScanEngine.Scan(
+                source,
+                target,
+                cancellationToken);
 
-        detected = scan?.Detection;
+        detected =
+            scan?.Detection;
 
         if (scan == null)
         {
@@ -92,12 +84,7 @@ internal static class NewLineNormalizer
         FileMetadata metadata =
             CaptureMetadata(path);
 
-        //
-        // Read-only destination handling and revalidation immediately
-        // before replacement are owned entirely by ConvertFile, so this
-        // caller (and any other caller of ConvertFile) gets the same
-        // protection without needing to duplicate it.
-        //
+        // Conversion and replacement safeguards remain in ConvertFile.
         LosslessFileWriter.ConvertFile(
             source,
             path,
@@ -112,15 +99,13 @@ internal static class NewLineNormalizer
 
 
     /// <summary>
-    /// Performs a read-only scan used by <c>-DetectOnly</c> to detect
-    /// encoding, BOM state, and line-ending style.
+    /// Detects encoding, BOM state, and line-ending style without modifying the file.
     /// </summary>
     /// <returns>
-    /// The detection result, or <see langword="null"/> if the encoding
-    /// could not be determined.
+    /// The detection result, or <see langword="null"/> if encoding is unknown.
     /// </returns>
     /// <exception cref="DecoderFallbackException">
-    /// The detected encoding fails strict decoding of the complete file.
+    /// The file fails strict decoding.
     /// </exception>
     public static DetectResult? DetectFile(
         string path,
@@ -133,9 +118,12 @@ internal static class NewLineNormalizer
         using FileStream source =
             OpenSourceStream(path);
 
-        // No target: DetectOnly only needs classification, not a conversion decision.
+        // No target: only detection and classification are needed.
         ScanEngine.ScanResult? scan =
-            ScanEngine.Scan(source, target: null, cancellationToken);
+            ScanEngine.Scan(
+                source,
+                target: null,
+                cancellationToken);
 
         return scan?.Detection;
     }
@@ -146,9 +134,7 @@ internal static class NewLineNormalizer
     #region Source Opening
 
     /// <summary>
-    /// Opens a source for detection, scanning, and optional conversion.
-    /// Allows concurrent readers but prevents other processes from writing
-    /// or deleting the file while the handle remains open.
+    /// Opens a source for read-only sequential processing.
     /// </summary>
     private static FileStream OpenSourceStream(
         string path)
@@ -168,7 +154,7 @@ internal static class NewLineNormalizer
     #region Metadata Capture
 
     /// <summary>
-    /// Captures the original file metadata for preservation during replacement.
+    /// Captures metadata for preservation during replacement.
     /// </summary>
     private static FileMetadata CaptureMetadata(
         string path)

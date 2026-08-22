@@ -7,47 +7,36 @@ using System.Text;
 namespace LineEndingNormalizer;
 
 /// <summary>
-/// Rewrites files while preserving encoding, BOM state, and metadata.
-/// Writes and verifies a temporary file before replacing the destination.
-/// Unicode encodings use strict decode/normalize/encode; approved legacy
-/// encodings use raw byte-level normalization.
+/// Rewrites files while preserving encoding, BOM, metadata, and content.
+/// Verifies temporary output before atomic replacement.
 /// </summary>
 internal static class LosslessFileWriter
 {
     private const int BufferSize = 65536;
 
     /// <summary>
-    /// Suffix for this tool's own temporary conversion files, shared with
-    /// <see cref="DirectoryTraversal"/> so an abandoned one (left behind by
-    /// a hard process kill mid-conversion) is never rescanned as ordinary input.
+    /// Temporary conversion-file suffix excluded from directory scans.
     /// </summary>
     internal const string TempFileSuffix = "len.tmp";
 
     /// <summary>
-    /// Unicode characters recognized as line breaks during normalization.
+    /// Line separators recognized during Unicode normalization.
     /// </summary>
-    /// <remarks>
-    /// CR, LF, NEL, LS, and PS.
-    /// </remarks>
     private static readonly SearchValues<char> LineBreakChars =
         SearchValues.Create(['\r', '\n', '\u0085', '\u2028', '\u2029']);
 
     #region Public API
 
     /// <summary>
-    /// Rewrites <paramref name="path"/> with normalized line endings while
-    /// preserving its encoding, BOM state, and metadata.
-    /// Verifies the temporary file and revalidates the destination before
-    /// replacement.
+    /// Normalizes a file using a verified temporary file and atomic replacement.
     /// </summary>
-    /// <param name="source">Open, seekable source stream. Ownership transfers here.</param>
+    /// <param name="source">Open seekable source stream; ownership transfers here.</param>
     /// <param name="path">File to rewrite.</param>
     /// <param name="encoding">Detected source encoding.</param>
     /// <param name="target">Target line-ending style.</param>
-    /// <param name="metadata">Original file metadata used for preservation and revalidation.</param>
-    /// <param name="createBackup">Creates or overwrites a <c>.bak</c> backup when <see langword="true"/>.</param>
-    /// <param name="cancellationToken">Token checked between conversion and transactional steps.</param>
-    /// <exception cref="Exception">Thrown if conversion, verification, validation, or replacement fails.</exception>
+    /// <param name="metadata">Original metadata for preservation and revalidation.</param>
+    /// <param name="createBackup">Whether to create or replace the .bak file.</param>
+    /// <param name="cancellationToken">Cancellation checked between processing stages.</param>
     public static void ConvertFile(
         FileStream source,
         string path,
@@ -57,7 +46,7 @@ internal static class LosslessFileWriter
         bool createBackup,
         CancellationToken cancellationToken = default)
     {
-        // Validate inside the try so the transferred stream is always disposed.
+        // Validate inside the try so ownership is always honored.
         ArgumentNullException.ThrowIfNull(source);
 
         try
@@ -73,14 +62,16 @@ internal static class LosslessFileWriter
                     nameof(source));
             }
 
-            RejectReparsePoints(path, metadata.Attributes);
+            RejectReparsePoints(
+                path,
+                metadata.Attributes);
 
             string directory =
                 Path.GetDirectoryName(path)
                 ?? throw new InvalidOperationException(
                     "Cannot determine the directory for " + path);
 
-            // Keep the temporary name short to reduce path-length risk.
+            // Keep abandoned temp files identifiable and short.
             string tempPath =
                 Path.Combine(
                     directory,
@@ -93,23 +84,26 @@ internal static class LosslessFileWriter
             byte[] preamble =
                 encoding.GetPreamble();
 
-            // Validate the detected BOM before skipping it.
-            ValidatePreamble(source, preamble);
+            // Ensure the detected BOM still matches the source.
+            ValidatePreamble(
+                source,
+                preamble);
 
-            // Unicode uses strict decode/encode.
-            // Approved legacy encodings use raw byte-level normalization.
+            // Unicode is decoded strictly; approved legacy files stay byte-level.
             bool isUnicode =
                 TextEncoding.IsUnicodeEncoding(encoding);
 
             if (!isUnicode)
             {
-                EnsureSafeLegacyEncoding(encoding);
+                EnsureSafeLegacyEncoding(
+                    encoding);
             }
 
             try
             {
-                // Preserve the original BOM and exclude it from conversion.
-                source.Position = preamble.Length;
+                // Skip the BOM during conversion.
+                source.Position =
+                    preamble.Length;
 
                 byte[] expectedHash =
                     isUnicode
@@ -126,7 +120,7 @@ internal static class LosslessFileWriter
                             tempPath,
                             cancellationToken);
 
-                // Release the source share-lock before revalidation and replacement.
+                // Release the source lock before revalidation and replacement.
                 source.Dispose();
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -150,15 +144,17 @@ internal static class LosslessFileWriter
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Revalidate after releasing the source share-lock.
-                RevalidateDestination(path, metadata);
+                RevalidateDestination(
+                    path,
+                    metadata);
 
-                // Apply metadata before replacement.
-                ApplyMetadata(tempPath, metadata);
+                ApplyMetadata(
+                    tempPath,
+                    metadata);
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Clear ReadOnly temporarily if required for replacement.
+                // Allow replacement of read-only files when necessary.
                 bool clearedReadOnly =
                     PrepareDestinationForReplacement(
                         path,
@@ -168,12 +164,16 @@ internal static class LosslessFileWriter
                 {
                     if (createBackup)
                     {
-                        CreateBackup(path, directory);
+                        CreateBackup(
+                            path,
+                            directory);
                     }
 
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    AtomicReplace(tempPath, path);
+                    AtomicReplace(
+                        tempPath,
+                        path);
                 }
                 catch
                 {
@@ -189,7 +189,7 @@ internal static class LosslessFileWriter
             }
             finally
             {
-                // ReplaceFile consumes the temporary file on success.
+                // Cleanup also covers failed or cancelled conversions.
                 try
                 {
                     File.Delete(tempPath);
@@ -214,7 +214,7 @@ internal static class LosslessFileWriter
     #region Reparse Points
 
     /// <summary>
-    /// Rejects symbolic links, junctions, and other reparse points.
+    /// Rejects links and other reparse points at the mutation boundary.
     /// </summary>
     private static void RejectReparsePoints(
         string path,
@@ -234,7 +234,7 @@ internal static class LosslessFileWriter
     #region BOM Validation
 
     /// <summary>
-    /// Verifies that the source begins with the expected BOM.
+    /// Verifies that the source BOM matches the detected encoding.
     /// </summary>
     private static void ValidatePreamble(
         FileStream source,
@@ -276,11 +276,8 @@ internal static class LosslessFileWriter
     #region Legacy Encoding Safety
 
     /// <summary>
-    /// Ensures the legacy encoding is on the approved raw-byte allowlist.
+    /// Enforces the approved legacy-encoding allowlist at the write boundary.
     /// </summary>
-    /// <remarks>
-    /// This is a final safety check at the mutation boundary.
-    /// </remarks>
     private static void EnsureSafeLegacyEncoding(
         Encoding encoding)
     {
@@ -298,12 +295,10 @@ internal static class LosslessFileWriter
     #region Destination Revalidation
 
     /// <summary>
-    /// Checks that the destination still exists, is not a reparse point,
-    /// and matches its original length and last-write time.
+    /// Confirms the destination is unchanged and still a real file.
     /// </summary>
     /// <remarks>
     /// This is a point-in-time race check, not a complete TOCTOU guarantee.
-    /// A change can still occur between this check and replacement.
     /// </remarks>
     private static void RevalidateDestination(
         string path,
@@ -341,8 +336,7 @@ internal static class LosslessFileWriter
     #region Read-Only Destination Handling
 
     /// <summary>
-    /// Clears ReadOnly when necessary for replacement and returns whether it
-    /// was changed.
+    /// Clears ReadOnly temporarily when replacement requires it.
     /// </summary>
     private static bool PrepareDestinationForReplacement(
         string path,
@@ -363,7 +357,7 @@ internal static class LosslessFileWriter
 
 
     /// <summary>
-    /// Restores the original destination attributes after a failed replacement.
+    /// Restores original attributes after a failed replacement.
     /// </summary>
     private static void RestoreDestinationAttributes(
         string path,
@@ -371,7 +365,9 @@ internal static class LosslessFileWriter
     {
         if (File.Exists(path))
         {
-            File.SetAttributes(path, originalAttributes);
+            File.SetAttributes(
+                path,
+                originalAttributes);
         }
     }
 
@@ -381,7 +377,7 @@ internal static class LosslessFileWriter
     #region Metadata Application
 
     /// <summary>
-    /// Applies the original file metadata to the temporary file.
+    /// Applies original metadata to the temporary output.
     /// </summary>
     private static void ApplyMetadata(
         string tempPath,
@@ -410,13 +406,8 @@ internal static class LosslessFileWriter
     #region Backup
 
     /// <summary>
-    /// Creates or overwrites <c>&lt;path&gt;.bak</c> from the current destination.
-    /// The backup is written to a temporary file and atomically installed.
+    /// Atomically installs the current destination as <c>.bak</c>.
     /// </summary>
-    /// <remarks>
-    /// Backup creation and main replacement are separate filesystem operations.
-    /// The main replacement is attempted only after backup creation succeeds.
-    /// </remarks>
     private static void CreateBackup(
         string path,
         string directory)
@@ -448,7 +439,10 @@ internal static class LosslessFileWriter
                            BufferSize,
                            FileOptions.SequentialScan))
             {
-                backupSource.CopyTo(backupOutput, BufferSize);
+                backupSource.CopyTo(
+                    backupOutput,
+                    BufferSize);
+
                 backupOutput.Flush(true);
             }
 
@@ -477,8 +471,7 @@ internal static class LosslessFileWriter
     #region Unicode Strategy (decode / normalize / encode)
 
     /// <summary>
-    /// Strictly decodes, normalizes, and re-encodes the source into a temporary
-    /// file. Returns a hash of the normalized Unicode content.
+    /// Strictly converts Unicode input and returns a verification hash.
     /// </summary>
     private static byte[] WriteConvertedFileUnicode(
         FileStream source,
@@ -489,25 +482,36 @@ internal static class LosslessFileWriter
         CancellationToken cancellationToken)
     {
         int maxReplacementLength =
-            target == LineEnding.Crlf ? 2 : 1;
+            target == LineEnding.Crlf
+                ? 2
+                : 1;
 
         int decodedCapacity =
             encoding.GetMaxCharCount(BufferSize);
 
         int normalizedCapacity =
-            decodedCapacity * maxReplacementLength + maxReplacementLength;
+            decodedCapacity * maxReplacementLength +
+            maxReplacementLength;
 
         int outputCapacity =
-            encoding.GetMaxByteCount(normalizedCapacity);
+            encoding.GetMaxByteCount(
+                normalizedCapacity);
 
         byte[] inputBuffer =
-            ArrayPool<byte>.Shared.Rent(BufferSize);
+            ArrayPool<byte>.Shared.Rent(
+                BufferSize);
+
         char[] decodedBuffer =
-            ArrayPool<char>.Shared.Rent(decodedCapacity);
+            ArrayPool<char>.Shared.Rent(
+                decodedCapacity);
+
         char[] normalizedBuffer =
-            ArrayPool<char>.Shared.Rent(normalizedCapacity);
+            ArrayPool<char>.Shared.Rent(
+                normalizedCapacity);
+
         byte[] outputBuffer =
-            ArrayPool<byte>.Shared.Rent(outputCapacity);
+            ArrayPool<byte>.Shared.Rent(
+                outputCapacity);
 
         try
         {
@@ -562,8 +566,7 @@ internal static class LosslessFileWriter
                         0,
                         read,
                         decodedBuffer,
-                        0,
-                        flush: false);
+                        0);
 
                 int normalizedCount =
                     NormalizeChars(
@@ -629,24 +632,29 @@ internal static class LosslessFileWriter
                 0,
                 finalByteCount);
 
-            // Flush before verification.
             output.Flush(true);
 
             return hasher.GetHashAndReset();
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(inputBuffer);
-            ArrayPool<char>.Shared.Return(decodedBuffer);
-            ArrayPool<char>.Shared.Return(normalizedBuffer);
-            ArrayPool<byte>.Shared.Return(outputBuffer);
+            ArrayPool<byte>.Shared.Return(
+                inputBuffer);
+
+            ArrayPool<char>.Shared.Return(
+                decodedBuffer);
+
+            ArrayPool<char>.Shared.Return(
+                normalizedBuffer);
+
+            ArrayPool<byte>.Shared.Return(
+                outputBuffer);
         }
     }
 
 
     /// <summary>
-    /// Normalizes Unicode line endings to <paramref name="target"/>.
-    /// Carries a trailing CR across buffer boundaries.
+    /// Normalizes Unicode line endings across buffer boundaries.
     /// </summary>
     private static int NormalizeChars(
         ReadOnlySpan<char> input,
@@ -655,13 +663,15 @@ internal static class LosslessFileWriter
         ref bool pendingCr,
         bool isFinal)
     {
-        ReadOnlySpan<char> replacement = target switch
-        {
-            LineEnding.Crlf => "\r\n",
-            LineEnding.Lf => "\n",
-            LineEnding.Cr => "\r",
-            _ => throw new ArgumentOutOfRangeException(nameof(target))
-        };
+        ReadOnlySpan<char> replacement =
+            target switch
+            {
+                LineEnding.Crlf => "\r\n",
+                LineEnding.Lf => "\n",
+                LineEnding.Cr => "\r",
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(target))
+            };
 
         int outPos = 0;
         int i = 0;
@@ -672,11 +682,16 @@ internal static class LosslessFileWriter
             if (pendingCr)
             {
                 // Resolve a CR carried from the previous chunk.
-                replacement.CopyTo(output[outPos..]);
-                outPos += replacement.Length;
+                replacement.CopyTo(
+                    output[outPos..]);
+
+                outPos +=
+                    replacement.Length;
+
                 pendingCr = false;
 
-                char c0 = input[i];
+                char c0 =
+                    input[i];
 
                 if (c0 == '\n')
                 {
@@ -692,12 +707,16 @@ internal static class LosslessFileWriter
                          c0 == '\u2028' ||
                          c0 == '\u2029')
                 {
-                    replacement.CopyTo(output[outPos..]);
-                    outPos += replacement.Length;
+                    replacement.CopyTo(
+                        output[outPos..]);
+
+                    outPos +=
+                        replacement.Length;
                 }
                 else
                 {
-                    output[outPos++] = c0;
+                    output[outPos++] =
+                        c0;
                 }
 
                 i++;
@@ -708,12 +727,17 @@ internal static class LosslessFileWriter
                 input[i..];
 
             int next =
-                remaining.IndexOfAny(LineBreakChars);
+                remaining.IndexOfAny(
+                    LineBreakChars);
 
             if (next < 0)
             {
-                remaining.CopyTo(output[outPos..]);
-                outPos += remaining.Length;
+                remaining.CopyTo(
+                    output[outPos..]);
+
+                outPos +=
+                    remaining.Length;
+
                 break;
             }
 
@@ -722,14 +746,18 @@ internal static class LosslessFileWriter
                 ReadOnlySpan<char> run =
                     remaining[..next];
 
-                run.CopyTo(output[outPos..]);
-                outPos += run.Length;
+                run.CopyTo(
+                    output[outPos..]);
+
+                outPos +=
+                    run.Length;
             }
 
             char c =
                 remaining[next];
 
-            i += next + 1;
+            i +=
+                next + 1;
 
             if (c == '\r')
             {
@@ -737,15 +765,22 @@ internal static class LosslessFileWriter
             }
             else
             {
-                replacement.CopyTo(output[outPos..]);
-                outPos += replacement.Length;
+                replacement.CopyTo(
+                    output[outPos..]);
+
+                outPos +=
+                    replacement.Length;
             }
         }
 
         if (isFinal && pendingCr)
         {
-            replacement.CopyTo(output[outPos..]);
-            outPos += replacement.Length;
+            replacement.CopyTo(
+                output[outPos..]);
+
+            outPos +=
+                replacement.Length;
+
             pendingCr = false;
         }
 
@@ -754,13 +789,8 @@ internal static class LosslessFileWriter
 
 
     /// <summary>
-    /// Verifies the temporary file's BOM and decoded-content hash.
-    /// Uses strict decoding to detect invalid sequences.
+    /// Verifies the temporary Unicode output and BOM.
     /// </summary>
-    /// <remarks>
-    /// The hash covers normalized Unicode characters rather than encoded bytes,
-    /// matching the Unicode conversion model.
-    /// </remarks>
     private static void VerifyConvertedFileUnicode(
         string tempPath,
         Encoding encoding,
@@ -798,13 +828,16 @@ internal static class LosslessFileWriter
         }
 
         int decodedCapacity =
-            encoding.GetMaxCharCount(BufferSize);
+            encoding.GetMaxCharCount(
+                BufferSize);
 
         byte[] inputBuffer =
-            ArrayPool<byte>.Shared.Rent(BufferSize);
+            ArrayPool<byte>.Shared.Rent(
+                BufferSize);
 
         char[] decodedBuffer =
-            ArrayPool<char>.Shared.Rent(decodedCapacity);
+            ArrayPool<char>.Shared.Rent(
+                decodedCapacity);
 
         try
         {
@@ -868,8 +901,11 @@ internal static class LosslessFileWriter
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(inputBuffer);
-            ArrayPool<char>.Shared.Return(decodedBuffer);
+            ArrayPool<byte>.Shared.Return(
+                inputBuffer);
+
+            ArrayPool<char>.Shared.Return(
+                decodedBuffer);
         }
     }
 
@@ -879,8 +915,7 @@ internal static class LosslessFileWriter
     #region Legacy Strategy (raw byte scan)
 
     /// <summary>
-    /// Normalizes CR/LF bytes directly without decoding or re-encoding.
-    /// Returns a hash of the output bytes.
+    /// Normalizes approved legacy input as raw bytes.
     /// </summary>
     private static byte[] WriteConvertedFileBytes(
         FileStream source,
@@ -888,15 +923,16 @@ internal static class LosslessFileWriter
         string tempPath,
         CancellationToken cancellationToken)
     {
-        // Allow CRLF expansion and a carried CR.
         int outputCapacity =
             BufferSize * 2 + 2;
 
         byte[] inputBuffer =
-            ArrayPool<byte>.Shared.Rent(BufferSize);
+            ArrayPool<byte>.Shared.Rent(
+                BufferSize);
 
         byte[] outputBuffer =
-            ArrayPool<byte>.Shared.Rent(outputCapacity);
+            ArrayPool<byte>.Shared.Rent(
+                outputCapacity);
 
         try
         {
@@ -967,15 +1003,17 @@ internal static class LosslessFileWriter
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(inputBuffer);
-            ArrayPool<byte>.Shared.Return(outputBuffer);
+            ArrayPool<byte>.Shared.Return(
+                inputBuffer);
+
+            ArrayPool<byte>.Shared.Return(
+                outputBuffer);
         }
     }
 
 
     /// <summary>
-    /// Normalizes raw CR/LF bytes to <paramref name="target"/>.
-    /// Carries a trailing CR across buffer boundaries.
+    /// Normalizes raw CR/LF bytes across buffer boundaries.
     /// </summary>
     private static int NormalizeBytes(
         ReadOnlySpan<byte> input,
@@ -984,13 +1022,15 @@ internal static class LosslessFileWriter
         ref bool pendingCr,
         bool isFinal)
     {
-        ReadOnlySpan<byte> replacement = target switch
-        {
-            LineEnding.Crlf => [0x0D, 0x0A],
-            LineEnding.Lf => [0x0A],
-            LineEnding.Cr => [0x0D],
-            _ => throw new ArgumentOutOfRangeException(nameof(target))
-        };
+        ReadOnlySpan<byte> replacement =
+            target switch
+            {
+                LineEnding.Crlf => [0x0D, 0x0A],
+                LineEnding.Lf => [0x0A],
+                LineEnding.Cr => [0x0D],
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(target))
+            };
 
         int outPos = 0;
         int i = 0;
@@ -1001,11 +1041,16 @@ internal static class LosslessFileWriter
             if (pendingCr)
             {
                 // Resolve a CR carried from the previous chunk.
-                replacement.CopyTo(output[outPos..]);
-                outPos += replacement.Length;
+                replacement.CopyTo(
+                    output[outPos..]);
+
+                outPos +=
+                    replacement.Length;
+
                 pendingCr = false;
 
-                byte b0 = input[i];
+                byte b0 =
+                    input[i];
 
                 if (b0 == 0x0A)
                 {
@@ -1019,7 +1064,8 @@ internal static class LosslessFileWriter
                 }
                 else
                 {
-                    output[outPos++] = b0;
+                    output[outPos++] =
+                        b0;
                 }
 
                 i++;
@@ -1036,8 +1082,12 @@ internal static class LosslessFileWriter
 
             if (next < 0)
             {
-                remaining.CopyTo(output[outPos..]);
-                outPos += remaining.Length;
+                remaining.CopyTo(
+                    output[outPos..]);
+
+                outPos +=
+                    remaining.Length;
+
                 break;
             }
 
@@ -1046,14 +1096,18 @@ internal static class LosslessFileWriter
                 ReadOnlySpan<byte> run =
                     remaining[..next];
 
-                run.CopyTo(output[outPos..]);
-                outPos += run.Length;
+                run.CopyTo(
+                    output[outPos..]);
+
+                outPos +=
+                    run.Length;
             }
 
             byte b =
                 remaining[next];
 
-            i += next + 1;
+            i +=
+                next + 1;
 
             if (b == 0x0D)
             {
@@ -1061,15 +1115,22 @@ internal static class LosslessFileWriter
             }
             else
             {
-                replacement.CopyTo(output[outPos..]);
-                outPos += replacement.Length;
+                replacement.CopyTo(
+                    output[outPos..]);
+
+                outPos +=
+                    replacement.Length;
             }
         }
 
         if (isFinal && pendingCr)
         {
-            replacement.CopyTo(output[outPos..]);
-            outPos += replacement.Length;
+            replacement.CopyTo(
+                output[outPos..]);
+
+            outPos +=
+                replacement.Length;
+
             pendingCr = false;
         }
 
@@ -1078,12 +1139,8 @@ internal static class LosslessFileWriter
 
 
     /// <summary>
-    /// Verifies the temporary file by hashing its raw output bytes.
+    /// Verifies the temporary legacy output by hashing its raw bytes.
     /// </summary>
-    /// <remarks>
-    /// Raw-byte hashing matches the legacy path because it performs no
-    /// decoding or re-encoding.
-    /// </remarks>
     private static void VerifyConvertedFileBytes(
         string tempPath,
         byte[] expectedHash,
@@ -1099,7 +1156,8 @@ internal static class LosslessFileWriter
                 FileOptions.SequentialScan);
 
         byte[] inputBuffer =
-            ArrayPool<byte>.Shared.Rent(BufferSize);
+            ArrayPool<byte>.Shared.Rent(
+                BufferSize);
 
         try
         {
@@ -1133,7 +1191,8 @@ internal static class LosslessFileWriter
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(inputBuffer);
+            ArrayPool<byte>.Shared.Return(
+                inputBuffer);
         }
     }
 
@@ -1146,16 +1205,15 @@ internal static class LosslessFileWriter
         0x00000002;
 
     /// <summary>
-    /// Replaces the destination using Windows ReplaceFile when available
-    /// and applicable; otherwise uses File.Move as a portable best-effort
-    /// fallback.
+    /// Atomically replaces the destination where supported.
     /// </summary>
     private static void AtomicReplace(
         string source,
         string destination)
     {
         // ReplaceFile requires an existing destination.
-        if (IsWindows() && File.Exists(destination))
+        if (IsWindows() &&
+            File.Exists(destination))
         {
             ReplaceFileWindows(
                 source,
@@ -1164,7 +1222,7 @@ internal static class LosslessFileWriter
             return;
         }
 
-        // Portable fallback; atomicity depends on the OS and filesystem.
+        // Portable fallback; atomicity depends on the OS/filesystem.
         File.Move(
             source,
             destination,
@@ -1173,8 +1231,7 @@ internal static class LosslessFileWriter
 
 
     /// <summary>
-    /// Replaces <paramref name="destination"/> using Windows ReplaceFile.
-    /// Falls back to File.Move only when the API is unavailable.
+    /// Uses Windows ReplaceFile, falling back only when unavailable.
     /// </summary>
     private static void ReplaceFileWindows(
         string source,
@@ -1195,7 +1252,7 @@ internal static class LosslessFileWriter
         }
         catch (DllNotFoundException)
         {
-            // Fall back only when the API itself is unavailable.
+            // Fall back only when the API is unavailable.
             File.Move(
                 source,
                 destination,
@@ -1205,7 +1262,7 @@ internal static class LosslessFileWriter
         }
         catch (EntryPointNotFoundException)
         {
-            // Fall back only when the API itself is unavailable.
+            // Fall back only when the API is unavailable.
             File.Move(
                 source,
                 destination,
@@ -1235,7 +1292,7 @@ internal static class LosslessFileWriter
     }
 
 
-    // EntryPoint must name the actual kernel32 export.
+    // Names the actual Windows API entry point.
     [DllImport(
         "kernel32.dll",
         EntryPoint = "ReplaceFileW",

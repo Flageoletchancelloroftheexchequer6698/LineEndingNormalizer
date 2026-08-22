@@ -3,15 +3,12 @@ using System.Text.RegularExpressions;
 namespace LineEndingNormalizer;
 
 /// <summary>
-/// Directory-tree walking and file-pattern matching used by the CLI's scan pipelines.
-/// Enumeration problems go through an optional <c>onWarning</c> callback, not the
-/// console directly, so callers keep ownership of console formatting/locking.
+/// Recursively enumerates files while applying directory and file exclusions.
 /// </summary>
 internal static class DirectoryTraversal
 {
     /// <summary>
-    /// Directories always excluded from recursive scanning.
-    /// Matching is by exact directory name, case-insensitive.
+    /// Directories excluded from recursive scanning.
     /// </summary>
     private static readonly HashSet<string> DefaultExcludedDirectoryNames =
         new(StringComparer.OrdinalIgnoreCase)
@@ -31,22 +28,23 @@ internal static class DirectoryTraversal
         };
 
     /// <summary>
-    /// Recursively enumerates candidate files while skipping excluded
-    /// directories and directory reparse points.
-    /// Enumeration errors are reported via <paramref name="onWarning"/> and skipped.
+    /// Enumerates files while skipping excluded directories and reparse points.
+    /// Enumeration failures are reported through <paramref name="onWarning"/>.
     /// </summary>
     internal static IEnumerable<string> EnumerateCandidateFiles(
         string basePath,
         Action<string>? onWarning = null,
         string? excludedFullPath = null)
     {
-        var pending = new Stack<string>();
+        var pending =
+            new Stack<string>();
 
         pending.Push(basePath);
 
         while (pending.Count > 0)
         {
-            string dir = pending.Pop();
+            string dir =
+                pending.Pop();
 
             List<string>? subDirectories =
                 TryEnumerate(
@@ -56,7 +54,7 @@ internal static class DirectoryTraversal
 
             if (subDirectories != null)
             {
-                foreach (var subDirectory in subDirectories)
+                foreach (string subDirectory in subDirectories)
                 {
                     if (DefaultExcludedDirectoryNames.Contains(
                             Path.GetFileName(subDirectory)))
@@ -86,10 +84,13 @@ internal static class DirectoryTraversal
 
             if (files != null)
             {
-                foreach (var file in files)
+                foreach (string file in files)
                 {
                     if (excludedFullPath is not null &&
-                        string.Equals(file, excludedFullPath, StringComparison.OrdinalIgnoreCase))
+                        string.Equals(
+                            file,
+                            excludedFullPath,
+                            StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
@@ -102,8 +103,7 @@ internal static class DirectoryTraversal
 
 
     /// <summary>
-    /// Returns true for symlink, junction, or other reparse-point
-    /// directories. Attribute-read failures are treated conservatively.
+    /// Returns true for reparse-point directories or when attributes cannot be read.
     /// </summary>
     internal static bool IsReparsePointDirectory(
         string dir)
@@ -124,7 +124,7 @@ internal static class DirectoryTraversal
 
 
     /// <summary>
-    /// Enumerates a directory while recovering from access and I/O errors.
+    /// Enumerates a directory and reports recoverable access or I/O failures.
     /// </summary>
     internal static List<string>? TryEnumerate(
         string dir,
@@ -152,17 +152,14 @@ internal static class DirectoryTraversal
 
 
     /// <summary>
-    /// Determines whether a file matches the include/exclude rules. .bak files and
-    /// abandoned conversion temp files are always excluded. <paramref name="fileName"/>
-    /// may be a bare filename or a path relative to the scan root, matching whatever
-    /// FilePatternMatcher's patterns expect.
+    /// Applies the include/exclude rules and always rejects tool-generated files.
     /// </summary>
     internal static bool IsCandidateFile(
         string fileName,
         List<Regex> includePatterns,
         List<Regex>? excludePatterns)
     {
-        // Otherwise -Backup with a broad "*" include would rescan its own .bak output.
+        // Never rescan the tool's own backup output.
         if (fileName.EndsWith(
                 ".bak",
                 StringComparison.OrdinalIgnoreCase))
