@@ -42,6 +42,43 @@ public sealed class BackupAndReparseWalkTests
     }
 
     [Fact]
+    public void ReadOnlyPreviousBackup_IsStillReplaced_AndKeepsItsProtection()
+    {
+        using var dir = new TempDirectory();
+
+        byte[] source = "a\nb\n"u8.ToArray();
+        string path = dir.WriteFile("f.txt", source);
+
+        string backupPath = path + ".bak";
+        File.WriteAllBytes(backupPath, "stale backup content"u8.ToArray());
+        File.SetAttributes(backupPath, FileAttributes.ReadOnly);
+
+        try
+        {
+            NormalizeResult result =
+                NewLineNormalizer.NormalizeFile(path, LineEnding.Crlf, whatIf: false, backup: true);
+
+            // A ReadOnly .bak used to make the backup install fail with
+            // ERROR_ACCESS_DENIED, which aborted the whole conversion.
+            Assert.Equal(NormalizeResult.Converted, result);
+            Assert.Equal("a\r\nb\r\n"u8.ToArray(), File.ReadAllBytes(path));
+
+            // The backup was genuinely refreshed from the pre-conversion original...
+            Assert.Equal(source, File.ReadAllBytes(backupPath));
+
+            // ...and the backup slot keeps the ReadOnly protection it had.
+            Assert.Equal(
+                FileAttributes.ReadOnly,
+                File.GetAttributes(backupPath) & FileAttributes.ReadOnly);
+        }
+        finally
+        {
+            // Clean up so TempDirectory's recursive delete can remove it.
+            File.SetAttributes(backupPath, FileAttributes.Normal);
+        }
+    }
+
+    [Fact]
     public void RepeatedBackupRuns_DoNotChainIntoBakBakBak()
     {
         using var dir = new TempDirectory();

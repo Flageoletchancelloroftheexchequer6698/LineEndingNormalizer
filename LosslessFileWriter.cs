@@ -470,9 +470,45 @@ internal static class LosslessFileWriter
                 backupOutput.Flush(true);
             }
 
-            AtomicReplace(
-                backupTempPath,
-                path + ".bak");
+            string backupPath = path + ".bak";
+
+            // A previous .bak may be ReadOnly, which makes the install fail with
+            // ERROR_ACCESS_DENIED and aborts an otherwise-valid conversion. Clear it
+            // for the install and restore it afterward so the backup slot keeps the
+            // protection it had -- ReplaceFile takes the replacement's attributes, so
+            // without this the refreshed backup would silently lose it.
+            var backupInfo =
+                new FileInfo(backupPath);
+
+            FileAttributes? clearedAttributes =
+                backupInfo.Exists &&
+                (backupInfo.Attributes & FileAttributes.ReadOnly) != 0
+                    ? backupInfo.Attributes
+                    : null;
+
+            if (clearedAttributes is not null)
+            {
+                File.SetAttributes(
+                    backupPath,
+                    clearedAttributes.Value & ~FileAttributes.ReadOnly);
+            }
+
+            try
+            {
+                AtomicReplace(
+                    backupTempPath,
+                    backupPath);
+            }
+            finally
+            {
+                if (clearedAttributes is not null &&
+                    File.Exists(backupPath))
+                {
+                    File.SetAttributes(
+                        backupPath,
+                        clearedAttributes.Value);
+                }
+            }
         }
         finally
         {
