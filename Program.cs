@@ -54,6 +54,11 @@ internal static class Program
     private const int ExitChangesNeeded = 4;
 
     /// <summary>
+    /// -BasePath is a symbolic link, junction, or other reparse point.
+    /// </summary>
+    private const int ExitReparsePointRoot = 5;
+
+    /// <summary>
     /// Serializes console output from parallel processing.
     /// </summary>
     private static readonly Lock ConsoleLock = new();
@@ -94,6 +99,16 @@ internal static class Program
                 options.BasePath);
 
             return ExitDirectoryNotFound;
+        }
+
+        if (DirectoryTraversal.IsReparsePointDirectory(options.BasePath))
+        {
+            Console.Error.WriteLine(
+                "'{0}' is a symbolic link or other reparse point; " +
+                "-BasePath must be a real directory.",
+                options.BasePath);
+
+            return ExitReparsePointRoot;
         }
 
         if (options.DetectOnly)
@@ -1512,6 +1527,10 @@ internal static class Program
                        Exit with a non-zero code when any file requires (or,
                        under -Validate, fails) conversion. Useful as a CI
                        gate, optionally with -WhatIf or -Validate.
+
+            Exit codes: 0 = clean; 1 = usage/argument error; 2 = base directory
+            not found; 3 = one or more files failed to process; 4 =
+            -FailOnChanges triggered; 5 = -BasePath is a reparse point.
 
             Examples:
 

@@ -193,4 +193,48 @@ public sealed class ProgramEndToEndTests
 
         Assert.Equal(0, exitCode);
     }
+
+    [Fact]
+    public void ReparsePointBasePath_ExitsWithDedicatedCode_NothingScanned()
+    {
+        using var dir = new TempDirectory();
+
+        string real = dir.CombinePath("real");
+        Directory.CreateDirectory(real);
+        File.WriteAllText(Path.Combine(real, "file.txt"), "hello");
+
+        string junction = dir.CombinePath("link");
+
+        var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{junction}\" \"{real}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using var proc = System.Diagnostics.Process.Start(psi)!;
+        proc.WaitForExit(10000);
+
+        if (proc.ExitCode != 0 || !Directory.Exists(junction))
+        {
+            // mklink unavailable/blocked in this environment; nothing to
+            // verify, but don't fail the suite over an environment gap.
+            return;
+        }
+
+        try
+        {
+            int exitCode = RunMain(
+                ["-BasePath", junction, "-Target", "CRLF"],
+                out _,
+                out string stderr);
+
+            Assert.Equal(5, exitCode);
+            Assert.Contains("reparse point", stderr, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            System.Diagnostics.Process.Start("cmd.exe", $"/c rmdir \"{junction}\"")?.WaitForExit(5000);
+        }
+    }
 }
