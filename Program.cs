@@ -799,7 +799,7 @@ internal static class Program
                 excludedFullPath: options.Report is null ? null : Path.GetFullPath(options.Report))
             .Where(file =>
                 DirectoryTraversal.IsCandidateFile(
-                    Path.GetFileName(file),
+                    Path.GetRelativePath(options.BasePath ?? "", file).Replace('\\', '/'),
                     includePatterns,
                     excludePatterns));
 
@@ -1149,7 +1149,7 @@ internal static class Program
                 excludedFullPath: options.Report is null ? null : Path.GetFullPath(options.Report))
             .Where(file =>
                 DirectoryTraversal.IsCandidateFile(
-                    Path.GetFileName(file),
+                    Path.GetRelativePath(options.BasePath ?? "", file).Replace('\\', '/'),
                     includePatterns,
                     excludePatterns));
 
@@ -1550,7 +1550,11 @@ internal static class Program
                   -BasePath <directory>
                   [-Include "<pattern1,pattern2,...>"]
                   [-Exclude "<pattern1,pattern2,...>"]
-                       Wildcard file-name patterns. Exclusions are applied
+                       Wildcard patterns. A pattern with no "/" or "\"
+                       matches just the filename, at any depth. One
+                       containing a separator matches the path relative
+                       to -BasePath instead (e.g. "src/*.cs"); "/" and
+                       "\" behave the same way. Exclusions are applied
                        after -Include. The following directories are always
                        skipped: .git, .svn, .hg, .vs, .idea, bin, obj,
                        node_modules, packages, dist, build, target.
