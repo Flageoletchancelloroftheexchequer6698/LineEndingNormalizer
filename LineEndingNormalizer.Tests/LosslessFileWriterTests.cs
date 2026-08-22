@@ -471,6 +471,43 @@ public sealed class LosslessFileWriterTests
     }
 
     [Fact]
+    public void ReadOnlySource_WithReplacementBlocked_PreservesRealFailure_AndCleansUpReadOnlyTemp()
+    {
+        using var dir = new TempDirectory();
+
+        byte[] source = [.. "a\nb\n"u8];
+        string path = dir.WriteFile("readonly_blocked.txt", source);
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+
+        try
+        {
+            // Same blocking technique as ReplaceFileFailure_WithApiAvailable_...
+            // below: a Read/FileShare.Read handle is compatible with
+            // NormalizeFile's own source open but blocks the rename/replace
+            // step itself. Combined with a ReadOnly source, ApplyMetadata
+            // copies ReadOnly onto the temp file before AtomicReplace fails,
+            // exercising the cleanup path this test protects: deleting that
+            // ReadOnly temp file must not replace the real failure with an
+            // UnauthorizedAccessException from the delete itself.
+            using FileStream blockingHandle =
+                new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+            var ex = Assert.ThrowsAny<Exception>(() =>
+                NewLineNormalizer.NormalizeFile(path, LineEnding.Crlf, whatIf: false));
+
+            Assert.IsType<Win32Exception>(ex);
+
+            Assert.Equal(source, File.ReadAllBytes(path));
+            Assert.Empty(Directory.GetFiles(dir.Path, "*.len.tmp"));
+        }
+        finally
+        {
+            // Clean up so TempDirectory's recursive delete can remove it.
+            File.SetAttributes(path, FileAttributes.Archive);
+        }
+    }
+
+    [Fact]
     public void ReplaceFileFailure_WithApiAvailable_ThrowsWin32Exception_NotSilentFallback()
     {
         using var dir = new TempDirectory();

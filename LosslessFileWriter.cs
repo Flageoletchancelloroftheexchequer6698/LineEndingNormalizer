@@ -189,15 +189,28 @@ internal static class LosslessFileWriter
             }
             finally
             {
-                // Cleanup also covers failed or cancelled conversions.
+                // Best-effort cleanup for a failed or cancelled conversion
+                // must never replace the primary exception. ApplyMetadata may
+                // have copied the original's ReadOnly attribute onto the temp
+                // file before a later step failed, so clear it before delete
+                // -- otherwise the delete itself throws and masks the real
+                // failure (e.g. the actual replacement error) with a
+                // misleading access-denied on the temp path.
                 try
                 {
-                    File.Delete(tempPath);
+                    if (File.Exists(tempPath))
+                    {
+                        File.SetAttributes(
+                            tempPath,
+                            FileAttributes.Normal);
+
+                        File.Delete(tempPath);
+                    }
                 }
-                catch (FileNotFoundException)
+                catch (IOException)
                 {
                 }
-                catch (DirectoryNotFoundException)
+                catch (UnauthorizedAccessException)
                 {
                 }
             }
