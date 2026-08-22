@@ -1,0 +1,145 @@
+using System.Text.RegularExpressions;
+
+namespace LineEndingNormalizer.Tests;
+
+/// <summary>
+/// Coverage for the -Backup flag, the .bak default exclusion, and the
+/// directory walker's refusal to descend into a symlinked/junctioned
+/// subdirectory.
+/// </summary>
+public sealed class BackupAndReparseWalkTests
+{
+    [Fact]
+    public void Backup_WritesByteIdenticalCopy_BeforeReplacing()
+    {
+        using var dir = new TempDirectory();
+
+        byte[] source = "a\nb\nc\n"u8.ToArray();
+        string path = dir.WriteFile("needs_convert.txt", source);
+
+        NormalizeResult result =
+            NewLineNormalizer.NormalizeFile(path, LineEnding.Crlf, whatIf: false, backup: true);
+
+        Assert.Equal(NormalizeResult.Converted, result);
+        Assert.Equal("a\r\nb\r\nc\r\n"u8.ToArray(), File.ReadAllBytes(path));
+
+        string backupPath = path + ".bak";
+        Assert.True(File.Exists(backupPath));
+        Assert.Equal(source, File.ReadAllBytes(backupPath));
+    }
+
+    [Fact]
+    public void NoBackupFlag_NoBackupFileIsCreated()
+    {
+        using var dir = new TempDirectory();
+
+        byte[] source = "a\nb\n"u8.ToArray();
+        string path = dir.WriteFile("needs_convert.txt", source);
+
+        NewLineNormalizer.NormalizeFile(path, LineEnding.Crlf, whatIf: false, backup: false);
+
+        Assert.False(File.Exists(path + ".bak"));
+    }
+
+    [Fact]
+    public void RepeatedBackupRuns_DoNotChainIntoBakBakBak()
+    {
+        using var dir = new TempDirectory();
+
+        string path = dir.WriteFile("f.txt", "a\nb\n"u8.ToArray());
+
+        List<Regex> includePatterns = FilePatternMatcher.Compile(["*"]);
+
+        // Simulate two successive end-to-end tool runs with -Backup and a
+        // broad include pattern, filtering candidates through the real
+        // Program.IsCandidateFile the same way ConvertDirectory does.
+        for (int pass = 0; pass < 2; pass++)
+        {
+            foreach (string candidate in Program.EnumerateCandidateFiles(dir.Path).ToList())
+            {
+                if (!Program.IsCandidateFile(Path.GetFileName(candidate), includePatterns, null))
+                {
+                    continue;
+                }
+
+                NewLineNormalizer.NormalizeFile(candidate, LineEnding.Crlf, whatIf: false, backup: true);
+            }
+        }
+
+        Assert.True(File.Exists(path + ".bak"));
+        Assert.False(File.Exists(path + ".bak.bak"));
+    }
+
+    [Theory]
+    [InlineData("file.txt.bak", false)]
+    [InlineData("file.BAK", false)]
+    [InlineData("file.txt", true)]
+    [InlineData("file.bakup", true)]
+    public void IsCandidateFile_ExcludesBakFilesRegardlessOfCase(string fileName, bool expectedCandidate)
+    {
+        List<Regex> includePatterns = FilePatternMatcher.Compile(["*"]);
+
+        bool isCandidate = Program.IsCandidateFile(fileName, includePatterns, null);
+
+        Assert.Equal(expectedCandidate, isCandidate);
+    }
+
+    [Fact]
+    public void IsCandidateFile_StillHonorsIncludeAndExclude()
+    {
+        List<Regex> includePatterns = FilePatternMatcher.Compile(["*.cs"]);
+        List<Regex> excludePatterns = FilePatternMatcher.Compile(["*.designer.cs"]);
+
+        Assert.True(Program.IsCandidateFile("Foo.cs", includePatterns, excludePatterns));
+        Assert.False(Program.IsCandidateFile("Foo.txt", includePatterns, excludePatterns));
+        Assert.False(Program.IsCandidateFile("Foo.designer.cs", includePatterns, excludePatterns));
+    }
+
+    [Fact]
+    public void DirectoryJunction_IsNotDescendedInto()
+    {
+        using var dir = new TempDirectory();
+
+        dir.WriteFile("real/keep.txt", "a"u8.ToArray());
+
+        string real = dir.CombinePath("real");
+        string loopLink = Path.Combine(real, "loop");
+
+        // A self-referencing junction: if the walker ever followed it, this
+        // would recurse without bound. Junctions don't require admin rights.
+        var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{loopLink}\" \"{real}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using var proc = System.Diagnostics.Process.Start(psi)!;
+        proc.WaitForExit(10000);
+
+        if (proc.ExitCode != 0 || !Directory.Exists(loopLink))
+        {
+            // mklink unavailable/blocked in this environment; nothing to
+            // verify, but don't fail the suite over an environment gap.
+            return;
+        }
+
+        try
+        {
+            Assert.True(Program.IsReparsePointDirectory(loopLink));
+
+            // Bounded: if the walker ignored the reparse-point check, this
+            // would never return.
+            var found = Program.EnumerateCandidateFiles(dir.Path)
+                .Select(Path.GetFileName)
+                .ToList();
+
+            Assert.Contains("keep.txt", found);
+            Assert.DoesNotContain(found, f => f == "loop");
+        }
+        finally
+        {
+            System.Diagnostics.Process.Start("cmd.exe", $"/c rmdir \"{loopLink}\"")?.WaitForExit(5000);
+        }
+    }
+}
