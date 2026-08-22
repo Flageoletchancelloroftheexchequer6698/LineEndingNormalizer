@@ -92,6 +92,12 @@ internal static class Program
             return ExitDirectoryNotFound;
         }
 
+        // Candidate paths from directory traversal are always rooted at
+        // BasePath as given; normalizing here keeps their comparison against
+        // -Report's absolute path (self-exclusion) correct even when
+        // -BasePath was passed as a relative path such as ".".
+        options.BasePath = Path.GetFullPath(options.BasePath);
+
         if (DirectoryTraversal.IsReparsePointDirectory(options.BasePath))
         {
             Console.Error.WriteLine(

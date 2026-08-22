@@ -151,6 +151,44 @@ public sealed class ProgramEndToEndTests
     }
 
     [Fact]
+    public void Report_RelativeBasePath_IsNeverRescannedOnALaterRun()
+    {
+        using var dir = new TempDirectory();
+
+        dir.WriteFile("a.txt", Encoding.ASCII.GetBytes("x\r\n"));
+        dir.WriteFile("b.txt", Encoding.ASCII.GetBytes("x\n"));
+
+        string originalDirectory = Environment.CurrentDirectory;
+
+        try
+        {
+            Environment.CurrentDirectory = dir.Path;
+
+            // A relative -BasePath is the case that broke self-exclusion:
+            // enumerated candidate paths stayed relative while the
+            // -Report exclusion check compared against an absolute path.
+            RunMain(["-BasePath", ".", "-Target", "CRLF", "-WhatIf", "-Quiet", "-Report", "report.csv"], out _, out _);
+
+            string[] firstRunLines = File.ReadAllLines(Path.Combine(dir.Path, "report.csv"));
+
+            // Header + 2 data rows; the report itself must not appear as a third row.
+            Assert.Equal(3, firstRunLines.Length);
+
+            RunMain(["-BasePath", ".", "-Target", "CRLF", "-WhatIf", "-Quiet", "-Report", "report.csv"], out _, out _);
+
+            string[] secondRunLines = File.ReadAllLines(Path.Combine(dir.Path, "report.csv"));
+
+            // Second run: still just the 2 real files, not 3 (the report from run 1).
+            Assert.Equal(3, secondRunLines.Length);
+            Assert.DoesNotContain(secondRunLines, line => line.StartsWith("report.csv,", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Environment.CurrentDirectory = originalDirectory;
+        }
+    }
+
+    [Fact]
     public void ValidateOnly_HidesAlreadyNormalizedByDefault_ShowsUnderVerbose()
     {
         using var dir = new TempDirectory();
