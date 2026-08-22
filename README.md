@@ -1,8 +1,9 @@
 # LineEndingNormalizer
 
-LineEndingNormalizer (LEN) is a command-line tool that detects a text file's
-encoding and line-ending style, and normalizes its line endings to CRLF, LF,
-or CR while preserving the file's encoding, byte-order mark, and metadata.
+LineEndingNormalizer (LEN) is a Windows command-line tool that detects a
+text file's encoding and line-ending style, and normalizes its line endings
+to CRLF, LF, or CR while preserving the file's encoding, byte-order mark,
+and metadata.
 
 ## Overview
 
