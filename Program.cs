@@ -79,6 +79,13 @@ internal static class Program
     /// </summary>
     public static int Main(string[] args)
     {
+        if (args.Length == 1 &&
+            args[0] is "/?" or "-?" or "/h" or "-h" or "--help")
+        {
+            PrintUsage();
+            return ExitSuccess;
+        }
+
         Encoding.RegisterProvider(
             CodePagesEncodingProvider.Instance);
 

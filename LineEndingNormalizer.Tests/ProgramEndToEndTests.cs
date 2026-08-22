@@ -262,4 +262,21 @@ public sealed class ProgramEndToEndTests
             System.Diagnostics.Process.Start("cmd.exe", $"/c rmdir \"{junction}\"")?.WaitForExit(5000);
         }
     }
+
+    [Theory]
+    [InlineData("-?")]
+    [InlineData("-h")]
+    [InlineData("/?")]
+    [InlineData("/h")]
+    [InlineData("--help")]
+    public void HelpFlag_PrintsUsage_ExitsSuccess_NoDirectoryAccess(string flag)
+    {
+        // No -BasePath given at all: if this reached argument validation instead of
+        // the dedicated help path, it would fail with "Base path is required."
+        int exitCode = RunMain([flag], out string stdout, out _);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("LineEndingNormalizer v1.0", stdout);
+        Assert.Contains("Usage:", stdout);
+    }
 }
