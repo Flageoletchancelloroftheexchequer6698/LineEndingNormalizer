@@ -154,6 +154,11 @@ internal static class DirectoryTraversal
     /// <summary>
     /// Applies the include/exclude rules and always rejects tool-generated files.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="fileName"/> may be a bare filename or a path relative
+    /// to the scan root -- whichever FilePatternMatcher's compiled patterns
+    /// expect for a given call site.
+    /// </remarks>
     internal static bool IsCandidateFile(
         string fileName,
         List<Regex> includePatterns,

@@ -10,6 +10,11 @@ namespace LineEndingNormalizer;
 /// Rewrites files while preserving encoding, BOM, metadata, and content.
 /// Verifies temporary output before atomic replacement.
 /// </summary>
+/// <remarks>
+/// Every step before the final replace writes only to a temporary file, so a
+/// failure at any point leaves the original completely untouched -- only the
+/// atomic replace itself can affect it.
+/// </remarks>
 internal static class LosslessFileWriter
 {
     private const int BufferSize = 65536;
@@ -46,7 +51,8 @@ internal static class LosslessFileWriter
         bool createBackup,
         CancellationToken cancellationToken = default)
     {
-        // Validate inside the try so ownership is always honored.
+        // Validate inside the try so the transferred stream is always
+        // disposed, even when a validation check is what fails.
         ArgumentNullException.ThrowIfNull(source);
 
         try
@@ -311,7 +317,8 @@ internal static class LosslessFileWriter
     /// Confirms the destination is unchanged and still a real file.
     /// </summary>
     /// <remarks>
-    /// This is a point-in-time race check, not a complete TOCTOU guarantee.
+    /// This is a point-in-time race check, not a complete TOCTOU guarantee --
+    /// a change can still occur between this check and the replace itself.
     /// </remarks>
     private static void RevalidateDestination(
         string path,
@@ -1250,6 +1257,13 @@ internal static class LosslessFileWriter
     /// <summary>
     /// Uses Windows ReplaceFile, falling back only when unavailable.
     /// </summary>
+    /// <remarks>
+    /// The fallback is deliberately narrow: it only catches the API being
+    /// absent (DllNotFoundException/EntryPointNotFoundException). A real
+    /// ReplaceFile failure (e.g. a sharing violation) must surface as a
+    /// Win32Exception, not be silently retried through the non-atomic
+    /// File.Move fallback.
+    /// </remarks>
     private static void ReplaceFileWindows(
         string source,
         string destination)

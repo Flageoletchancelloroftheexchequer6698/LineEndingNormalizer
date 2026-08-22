@@ -53,7 +53,9 @@ internal static class NewLineNormalizer
                 path);
         }
 
-        // Keep one source stream through scan and conversion.
+        // Keep one source stream through scan and conversion: this avoids a
+        // redundant open and narrows the window for an external change
+        // between detection and the write that follows it.
         using FileStream source =
             OpenSourceStream(path);
 
