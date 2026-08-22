@@ -4,8 +4,8 @@ namespace LineEndingNormalizer;
 
 /// <summary>
 /// Directory-tree walking and file-pattern matching used by the CLI's scan pipelines.
-/// Reports enumeration problems via an optional <c>onWarning</c> callback rather than
-/// writing to the console directly, so callers own console formatting/locking.
+/// Enumeration problems go through an optional <c>onWarning</c> callback, not the
+/// console directly, so callers keep ownership of console formatting/locking.
 /// </summary>
 internal static class DirectoryTraversal
 {
@@ -154,18 +154,14 @@ internal static class DirectoryTraversal
     /// <summary>
     /// Determines whether a file matches the include/exclude rules. .bak files are always
     /// excluded. <paramref name="fileName"/> may be a bare filename or a path relative to
-    /// the scan root - callers pass whichever FilePatternMatcher's patterns expect to
-    /// match against; the ".bak" suffix check works identically either way.
+    /// the scan root, matching whatever FilePatternMatcher's patterns expect.
     /// </summary>
     internal static bool IsCandidateFile(
         string fileName,
         List<Regex> includePatterns,
         List<Regex>? excludePatterns)
     {
-        //
-        // Prevent -Backup with a broad include such as "*" from
-        // recursively processing its own backups.
-        //
+        // Otherwise -Backup with a broad "*" include would rescan its own .bak output.
         if (fileName.EndsWith(
                 ".bak",
                 StringComparison.OrdinalIgnoreCase))

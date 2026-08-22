@@ -3,11 +3,9 @@
 namespace LineEndingNormalizer;
 
 /// <summary>
-/// Provides wildcard filename/path matching using regular expressions. A pattern with no
-/// "/" or "\" matches against a candidate's bare filename; one containing a separator
-/// matches against its path relative to the scan root instead (see
-/// DirectoryTraversal.EnumerateCandidateFiles). Separators are normalized to "/" so a
-/// pattern written with either matches the same way.
+/// Wildcard filename/path matching via regular expressions. A pattern with no "/" or "\"
+/// matches the bare filename; one with a separator matches the path relative to the scan
+/// root instead (see DirectoryTraversal.EnumerateCandidateFiles). "\" is normalized to "/".
 /// </summary>
 internal static partial class FilePatternMatcher
 {
