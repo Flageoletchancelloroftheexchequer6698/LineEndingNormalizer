@@ -65,6 +65,47 @@ public sealed class LosslessFileWriterTests
     }
 
     [Fact]
+    public void BomLessUtf16LE_WithNonLatinContent_DetectsAndConvertsCorrectly_WithoutAddingABom()
+    {
+        using var dir = new TempDirectory();
+
+        // Repeated real Cyrillic text mixed with ASCII digits/punctuation/
+        // spaces: dense enough non-Latin content that the BOM-less UTF-16
+        // detector's primary NUL-density heuristic is inconclusive for both
+        // byte orders (neither channel's NUL ratio clears the 0.5
+        // threshold), forcing the chi-square channel-distribution fallback
+        // in UnicodeDetector.CheckUtf16 to decide the byte order -- verified
+        // empirically against this exact content: beChi ~= 5,943 vs
+        // leChi ~= 55,830, both far above the 300 threshold, LE strictly wins.
+        string phrase = "Привет мир 123 - как дела сегодня? Всё хорошо, спасибо! ";
+        string secondLine = "вторая строка без нормального конца";
+        string content = string.Concat(Enumerable.Repeat(phrase, 6)) + "\n" + secondLine + "\r";
+
+        // Encoding.Unicode is UTF-16LE; GetBytes never prepends a BOM (only
+        // GetPreamble()/a preamble-writing stream would), so this is
+        // genuinely BOM-less input.
+        byte[] source = Encoding.Unicode.GetBytes(content);
+        Assert.False(source[0] == 0xFF && source[1] == 0xFE);
+
+        string path = dir.WriteFile("cyrillic_no_bom.txt", source);
+
+        NormalizeResult result =
+            NewLineNormalizer.NormalizeFile(path, LineEnding.Crlf, whatIf: false);
+
+        Assert.Equal(NormalizeResult.Converted, result);
+
+        byte[] converted = File.ReadAllBytes(path);
+
+        // Conversion must not introduce a BOM that wasn't in the source.
+        Assert.False(converted[0] == 0xFF && converted[1] == 0xFE);
+
+        string expected = string.Concat(Enumerable.Repeat(phrase, 6)) + "\r\n" + secondLine + "\r\n";
+        string actual = Encoding.Unicode.GetString(converted);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
     public void AlreadyNormalized_IsReportedUnchanged_AndFileIsByteIdentical()
     {
         using var dir = new TempDirectory();
