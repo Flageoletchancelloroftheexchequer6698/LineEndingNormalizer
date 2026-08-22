@@ -172,4 +172,28 @@ public sealed class ProgramArgumentTests
         Assert.Throws<ArgumentException>(() =>
             Program.ParseArguments(["-BasePath", ".", "-MaxParallelism"]));
     }
+
+    [Theory]
+    [InlineData("-BasePath", "-Verbose")]
+    [InlineData("-Include", "-Exclude")]
+    [InlineData("-Target", "-WhatIf")]
+    [InlineData("-Report", "-MaxParallelism")]
+    public void ValueLooksLikeAnotherKnownFlag_IsTreatedAsMissingValue(string flag, string nextFlag)
+    {
+        // e.g. "-BasePath -Verbose" must not silently set BasePath = "-Verbose" and
+        // swallow -Verbose as that value instead of parsing it as its own flag.
+        Assert.Throws<ArgumentException>(() =>
+            Program.ParseArguments(["-BasePath", ".", flag, nextFlag]));
+    }
+
+    [Fact]
+    public void MaxParallelism_ValueThatStartsWithDashButIsNotAKnownFlag_IsConsumedAsTheValue()
+    {
+        // A negative-number-shaped value must not be mistaken for a missing flag value -
+        // it's correctly consumed, then rejected for being non-positive.
+        ArgumentException ex = Assert.Throws<ArgumentException>(() =>
+            Program.ParseArguments(["-BasePath", ".", "-MaxParallelism", "-4"]));
+
+        Assert.Contains("positive integer", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -251,25 +252,25 @@ internal static class Program
             {
                 case "-basepath":
 
-                    if (++i >= args.Length)
+                    if (!TryTakeValue(args, ref i, out string? basePath))
                     {
                         throw new ArgumentException(
                             "Missing value for -BasePath.");
                     }
 
-                    options.BasePath = args[i];
+                    options.BasePath = basePath;
 
                     break;
 
                 case "-include":
 
-                    if (++i >= args.Length)
+                    if (!TryTakeValue(args, ref i, out string? include))
                     {
                         throw new ArgumentException(
                             "Missing value for -Include.");
                     }
 
-                    foreach (var pattern in SplitPatterns(args[i]))
+                    foreach (var pattern in SplitPatterns(include))
                     {
                         options.IncludePatterns.Add(pattern);
                     }
@@ -278,13 +279,13 @@ internal static class Program
 
                 case "-exclude":
 
-                    if (++i >= args.Length)
+                    if (!TryTakeValue(args, ref i, out string? exclude))
                     {
                         throw new ArgumentException(
                             "Missing value for -Exclude.");
                     }
 
-                    foreach (var pattern in SplitPatterns(args[i]))
+                    foreach (var pattern in SplitPatterns(exclude))
                     {
                         options.ExcludePatterns.Add(pattern);
                     }
@@ -293,14 +294,14 @@ internal static class Program
 
                 case "-target":
 
-                    if (++i >= args.Length)
+                    if (!TryTakeValue(args, ref i, out string? target))
                     {
                         throw new ArgumentException(
                             "Missing value for -Target.");
                     }
 
                     options.TargetLineEnding =
-                        args[i].ToUpperInvariant() switch
+                        target.ToUpperInvariant() switch
                         {
                             "CRLF" or "WINDOWS" => LineEnding.Crlf,
                             "LF" or "UNIX" => LineEnding.Lf,
@@ -308,7 +309,7 @@ internal static class Program
 
                             _ => throw new ArgumentException(
                                 "Invalid target line ending: " +
-                                args[i])
+                                target)
                         };
 
                     break;
@@ -368,13 +369,13 @@ internal static class Program
 
                 case "-report":
 
-                    if (++i >= args.Length)
+                    if (!TryTakeValue(args, ref i, out string? report))
                     {
                         throw new ArgumentException(
                             "Missing value for -Report.");
                     }
 
-                    options.Report = args[i];
+                    options.Report = report;
 
                     break;
 
@@ -386,21 +387,21 @@ internal static class Program
 
                 case "-maxparallelism":
 
-                    if (++i >= args.Length)
+                    if (!TryTakeValue(args, ref i, out string? maxParallelismText))
                     {
                         throw new ArgumentException(
                             "Missing value for -MaxParallelism.");
                     }
 
                     if (!int.TryParse(
-                            args[i],
+                            maxParallelismText,
                             out int maxParallelism) ||
                         maxParallelism < 1)
                     {
                         throw new ArgumentException(
                             "Invalid value for -MaxParallelism " +
                             "(must be a positive integer): " +
-                            args[i]);
+                            maxParallelismText);
                     }
 
                     options.MaxParallelism =
@@ -434,6 +435,41 @@ internal static class Program
         }
 
         return options;
+    }
+
+
+    // Lets TryTakeValue detect "-BasePath -Verbose" as a missing value, not a path.
+    private static readonly HashSet<string> KnownFlagNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "basepath", "include", "exclude", "target", "verbose",
+            "previewonly", "whatif", "validateonly", "failonchanges",
+            "quiet", "backup", "detectonly", "deterministic", "report",
+            "fullpath", "maxparallelism",
+        };
+
+    private static bool TryTakeValue(
+        string[] args,
+        ref int i,
+        [NotNullWhen(true)] out string? value)
+    {
+        if (i + 1 >= args.Length)
+        {
+            value = null;
+            return false;
+        }
+
+        string candidate = args[i + 1];
+
+        if (candidate.StartsWith('-') &&
+            KnownFlagNames.Contains(candidate.TrimStart('-')))
+        {
+            value = null;
+            return false;
+        }
+
+        value = args[++i];
+        return true;
     }
 
 
