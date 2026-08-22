@@ -55,13 +55,25 @@ internal static partial class FilePatternMatcher
                 continue;
             }
 
+            // A separator-free mask must match the filename at any depth, not
+            // just at the scan root, so it needs an optional directory prefix.
+            bool hasSeparator =
+                fileMask.Contains('/') ||
+                fileMask.Contains('\\');
+
+            string body =
+                Regex.Escape(fileMask.Replace('\\', '/'))
+                    .Replace(@"\*", ".*")
+                    .Replace(@"\?", ".");
+
+            string anchored =
+                hasSeparator
+                    ? "^" + body + "$"
+                    : "^(?:.*/)?" + body + "$";
+
             result.Add(
                 new Regex(
-                    "^" +
-                    Regex.Escape(fileMask.Replace('\\', '/'))
-                        .Replace(@"\*", ".*")
-                        .Replace(@"\?", ".") +
-                    "$",
+                    anchored,
                     RegexOptions.IgnoreCase |
                     RegexOptions.CultureInvariant |
                     RegexOptions.Compiled));

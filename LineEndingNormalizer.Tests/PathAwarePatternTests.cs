@@ -70,4 +70,39 @@ public sealed class PathAwarePatternTests
 
         Assert.Equal(withSlash, withBackslash);
     }
+
+    [Fact]
+    public void SeparatorFreeExactFilename_MatchesAtAnyDepth()
+    {
+        using TempDirectory dir = BuildTree();
+        dir.WriteFile("src/nested/b.cs", "x"u8.ToArray());
+
+        // b.cs only exists at src/nested/b.cs; a separator-free mask must
+        // still find it there, per the documented "matches the filename at
+        // any depth" contract.
+        HashSet<string> found = Scan(dir, "b.cs");
+
+        Assert.Equal(new HashSet<string> { "src/nested/b.cs" }, found);
+    }
+
+    [Fact]
+    public void SeparatorFreeExactFilename_ExcludesOnlyExactMatch_NotSimilarNames()
+    {
+        using var dir = new TempDirectory();
+
+        dir.WriteFile("Properties/AssemblyInfo.cs", "x"u8.ToArray());
+        dir.WriteFile("Properties/AssemblyInfoHelper.cs", "x"u8.ToArray());
+
+        List<Regex> includePatterns = FilePatternMatcher.Compile(["*"]);
+        List<Regex> excludePatterns = FilePatternMatcher.Compile(["AssemblyInfo.cs"]);
+
+        var found = DirectoryTraversal.EnumerateCandidateFiles(dir.Path)
+            .Select(file => Path.GetRelativePath(dir.Path, file).Replace('\\', '/'))
+            .Where(relativePath =>
+                DirectoryTraversal.IsCandidateFile(relativePath, includePatterns, excludePatterns))
+            .ToHashSet();
+
+        Assert.DoesNotContain("Properties/AssemblyInfo.cs", found);
+        Assert.Contains("Properties/AssemblyInfoHelper.cs", found);
+    }
 }
