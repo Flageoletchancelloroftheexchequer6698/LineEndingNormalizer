@@ -1,7 +1,7 @@
 namespace LineEndingNormalizer.Tests;
 
 /// <summary>
-/// Coverage for Program.EnumerateCandidateFiles: default directory
+/// Coverage for DirectoryTraversal.EnumerateCandidateFiles: default directory
 /// exclusion and resilience to a directory that can't be listed.
 /// </summary>
 public sealed class DirectoryWalkTests
@@ -24,7 +24,7 @@ public sealed class DirectoryWalkTests
         // lookalike directory like ".github" must still be walked.
         dir.WriteFile(".github/workflows/ci.yml", [.. "x"u8]);
 
-        var found = Program.EnumerateCandidateFiles(dir.Path)
+        var found = DirectoryTraversal.EnumerateCandidateFiles(dir.Path)
             .Select(f => Path.GetRelativePath(dir.Path, f).Replace('\\', '/'))
             .ToHashSet();
 
@@ -47,7 +47,7 @@ public sealed class DirectoryWalkTests
             "len-tests-ghost-" + Guid.NewGuid().ToString("N"));
 
         // Never created, so listing it fails with DirectoryNotFoundException.
-        var found = Program.EnumerateCandidateFiles(ghostRoot).ToList();
+        var found = DirectoryTraversal.EnumerateCandidateFiles(ghostRoot).ToList();
 
         Assert.Empty(found);
     }
@@ -60,7 +60,7 @@ public sealed class DirectoryWalkTests
             "len-tests-ghost-" + Guid.NewGuid().ToString("N"));
 
         List<string>? result =
-            Program.TryEnumerate(ghost, Directory.EnumerateFiles);
+            DirectoryTraversal.TryEnumerate(ghost, Directory.EnumerateFiles);
 
         Assert.Null(result);
     }
@@ -74,7 +74,7 @@ public sealed class DirectoryWalkTests
         dir.WriteFile("b.txt", [.. "x"u8]);
 
         List<string>? result =
-            Program.TryEnumerate(dir.Path, Directory.EnumerateFiles);
+            DirectoryTraversal.TryEnumerate(dir.Path, Directory.EnumerateFiles);
 
         Assert.NotNull(result);
         Assert.Equal(2, result.Count);

@@ -52,12 +52,12 @@ public sealed class BackupAndReparseWalkTests
 
         // Simulate two successive end-to-end tool runs with -Backup and a
         // broad include pattern, filtering candidates through the real
-        // Program.IsCandidateFile the same way ConvertDirectory does.
+        // DirectoryTraversal.IsCandidateFile the same way ConvertDirectory does.
         for (int pass = 0; pass < 2; pass++)
         {
-            foreach (string candidate in Program.EnumerateCandidateFiles(dir.Path).ToList())
+            foreach (string candidate in DirectoryTraversal.EnumerateCandidateFiles(dir.Path).ToList())
             {
-                if (!Program.IsCandidateFile(Path.GetFileName(candidate), includePatterns, null))
+                if (!DirectoryTraversal.IsCandidateFile(Path.GetFileName(candidate), includePatterns, null))
                 {
                     continue;
                 }
@@ -79,7 +79,7 @@ public sealed class BackupAndReparseWalkTests
     {
         List<Regex> includePatterns = FilePatternMatcher.Compile(["*"]);
 
-        bool isCandidate = Program.IsCandidateFile(fileName, includePatterns, null);
+        bool isCandidate = DirectoryTraversal.IsCandidateFile(fileName, includePatterns, null);
 
         Assert.Equal(expectedCandidate, isCandidate);
     }
@@ -90,9 +90,9 @@ public sealed class BackupAndReparseWalkTests
         List<Regex> includePatterns = FilePatternMatcher.Compile(["*.cs"]);
         List<Regex> excludePatterns = FilePatternMatcher.Compile(["*.designer.cs"]);
 
-        Assert.True(Program.IsCandidateFile("Foo.cs", includePatterns, excludePatterns));
-        Assert.False(Program.IsCandidateFile("Foo.txt", includePatterns, excludePatterns));
-        Assert.False(Program.IsCandidateFile("Foo.designer.cs", includePatterns, excludePatterns));
+        Assert.True(DirectoryTraversal.IsCandidateFile("Foo.cs", includePatterns, excludePatterns));
+        Assert.False(DirectoryTraversal.IsCandidateFile("Foo.txt", includePatterns, excludePatterns));
+        Assert.False(DirectoryTraversal.IsCandidateFile("Foo.designer.cs", includePatterns, excludePatterns));
     }
 
     [Fact]
@@ -126,11 +126,11 @@ public sealed class BackupAndReparseWalkTests
 
         try
         {
-            Assert.True(Program.IsReparsePointDirectory(loopLink));
+            Assert.True(DirectoryTraversal.IsReparsePointDirectory(loopLink));
 
             // Bounded: if the walker ignored the reparse-point check, this
             // would never return.
-            var found = Program.EnumerateCandidateFiles(dir.Path)
+            var found = DirectoryTraversal.EnumerateCandidateFiles(dir.Path)
                 .Select(Path.GetFileName)
                 .ToList();
 

@@ -54,27 +54,6 @@ internal static class Program
     private const int ExitChangesNeeded = 4;
 
     /// <summary>
-    /// Directories always excluded from recursive scanning.
-    /// Matching is by exact directory name, case-insensitive.
-    /// </summary>
-    private static readonly HashSet<string> DefaultExcludedDirectoryNames =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".git",
-            ".svn",
-            ".hg",
-            ".vs",
-            ".idea",
-            "bin",
-            "obj",
-            "node_modules",
-            "packages",
-            "dist",
-            "build",
-            "target"
-        };
-
-    /// <summary>
     /// Serializes console output from parallel processing.
     /// </summary>
     private static readonly Lock ConsoleLock = new();
@@ -440,127 +419,16 @@ internal static class Program
 
 
     /// <summary>
-    /// Recursively enumerates candidate files while skipping excluded
-    /// directories and directory reparse points.
-    /// Enumeration errors are reported and skipped.
+    /// Prints a directory-traversal warning under the console lock, matching
+    /// the DarkYellow presentation used elsewhere for non-fatal scan issues.
     /// </summary>
-    internal static IEnumerable<string> EnumerateCandidateFiles(
-        string basePath)
+    private static void PrintTraversalWarning(string message)
     {
-        var pending = new Stack<string>();
-
-        pending.Push(basePath);
-
-        while (pending.Count > 0)
+        lock (ConsoleLock)
         {
-            string dir = pending.Pop();
-
-            List<string>? subDirectories =
-                TryEnumerate(
-                    dir,
-                    Directory.EnumerateDirectories);
-
-            if (subDirectories != null)
-            {
-                foreach (var subDirectory in subDirectories)
-                {
-                    if (DefaultExcludedDirectoryNames.Contains(
-                            Path.GetFileName(subDirectory)))
-                    {
-                        continue;
-                    }
-
-                    if (IsReparsePointDirectory(subDirectory))
-                    {
-                        lock (ConsoleLock)
-                        {
-                            Console.ForegroundColor =
-                                ConsoleColor.DarkYellow;
-
-                            Console.Error.WriteLine(
-                                "Skipping directory " +
-                                "(symlink/junction): {0}",
-                                subDirectory);
-
-                            Console.ResetColor();
-                        }
-
-                        continue;
-                    }
-
-                    pending.Push(subDirectory);
-                }
-            }
-
-            List<string>? files =
-                TryEnumerate(
-                    dir,
-                    Directory.EnumerateFiles);
-
-            if (files != null)
-            {
-                foreach (var file in files)
-                {
-                    yield return file;
-                }
-            }
-        }
-    }
-
-
-    /// <summary>
-    /// Returns true for symlink, junction, or other reparse-point
-    /// directories. Attribute-read failures are treated conservatively.
-    /// </summary>
-    internal static bool IsReparsePointDirectory(
-        string dir)
-    {
-        try
-        {
-            return
-                (File.GetAttributes(dir) &
-                 FileAttributes.ReparsePoint) != 0;
-        }
-        catch (Exception ex) when (
-            ex is IOException or
-            UnauthorizedAccessException)
-        {
-            return true;
-        }
-    }
-
-
-    /// <summary>
-    /// Enumerates a directory while recovering from access and I/O errors.
-    /// </summary>
-    internal static List<string>? TryEnumerate(
-        string dir,
-        Func<string, IEnumerable<string>> enumerate)
-    {
-        try
-        {
-            return [.. enumerate(dir)];
-        }
-        catch (Exception ex) when (
-            ex is UnauthorizedAccessException or
-            IOException)
-        {
-            lock (ConsoleLock)
-            {
-                Console.ForegroundColor =
-                    ConsoleColor.DarkYellow;
-
-                Console.Error.WriteLine(
-                    "Skipping directory (cannot list): {0}",
-                    dir);
-
-                Console.Error.WriteLine(
-                    "    " + ex.Message);
-
-                Console.ResetColor();
-            }
-
-            return null;
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.Error.WriteLine(message);
+            Console.ResetColor();
         }
     }
 
@@ -835,10 +703,11 @@ internal static class Program
                 : null;
 
         var candidateFiles =
-            EnumerateCandidateFiles(
-                options.BasePath ?? "")
+            DirectoryTraversal.EnumerateCandidateFiles(
+                options.BasePath ?? "",
+                onWarning: PrintTraversalWarning)
             .Where(file =>
-                IsCandidateFile(
+                DirectoryTraversal.IsCandidateFile(
                     Path.GetFileName(file),
                     includePatterns,
                     excludePatterns));
@@ -1176,10 +1045,11 @@ internal static class Program
                 : null;
 
         var candidateFiles =
-            EnumerateCandidateFiles(
-                options.BasePath ?? "")
+            DirectoryTraversal.EnumerateCandidateFiles(
+                options.BasePath ?? "",
+                onWarning: PrintTraversalWarning)
             .Where(file =>
-                IsCandidateFile(
+                DirectoryTraversal.IsCandidateFile(
                     Path.GetFileName(file),
                     includePatterns,
                     excludePatterns));
@@ -1483,45 +1353,6 @@ internal static class Program
         return Path.GetRelativePath(
             options.BasePath ?? file,
             file);
-    }
-
-
-    /// <summary>
-    /// Determines whether a file matches the include/exclude rules.
-    /// .bak files are always excluded.
-    /// </summary>
-    internal static bool IsCandidateFile(
-        string fileName,
-        List<Regex> includePatterns,
-        List<Regex>? excludePatterns)
-    {
-        //
-        // Prevent -Backup with a broad include such as "*" from
-        // recursively processing its own backups.
-        //
-        if (fileName.EndsWith(
-                ".bak",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (!FilePatternMatcher.IsMatch(
-                fileName,
-                includePatterns))
-        {
-            return false;
-        }
-
-        if (excludePatterns != null &&
-            FilePatternMatcher.IsMatch(
-                fileName,
-                excludePatterns))
-        {
-            return false;
-        }
-
-        return true;
     }
 
 
