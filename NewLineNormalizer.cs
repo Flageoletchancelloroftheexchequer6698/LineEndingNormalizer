@@ -47,15 +47,15 @@ internal static class NewLineNormalizer
         using FileStream source =
             OpenSourceStream(path);
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(source, target, cancellationToken);
 
-        if (detected == null)
+        if (scan == null)
         {
             return NormalizeResult.EncodingNotDetected;
         }
 
-        if (!requiresConversion)
+        if (!scan.RequiresConversion)
         {
             return NormalizeResult.Unchanged;
         }
@@ -77,7 +77,7 @@ internal static class NewLineNormalizer
         LosslessFileWriter.ConvertFile(
             source,
             path,
-            detected.Encoding,
+            scan.Detection.Encoding,
             target,
             metadata,
             backup,
@@ -110,10 +110,10 @@ internal static class NewLineNormalizer
             OpenSourceStream(path);
 
         // No target: DetectOnly only needs classification, not a conversion decision.
-        (DetectResult? detected, _) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(source, target: null, cancellationToken);
 
-        return detected;
+        return scan?.Detection;
     }
 
     #endregion

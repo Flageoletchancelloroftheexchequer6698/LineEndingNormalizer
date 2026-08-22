@@ -4,18 +4,34 @@ using System.Text;
 namespace LineEndingNormalizer;
 
 /// <summary>
+/// Detected encoding, BOM state, and line-ending style.
+/// </summary>
+internal sealed record DetectResult(
+    Encoding Encoding,
+    bool HasBom,
+    LineEndingKind LineEndingKind);
+
+/// <summary>
 /// Shared read-only scan for detection and normalization decisions.
-/// Does not own or modify the supplied stream.
 /// </summary>
 internal static class ScanEngine
 {
     private const int BufferSize = 65536;
 
     /// <summary>
-    /// Detects encoding, classifies line endings, and optionally checks
-    /// whether normalization to <paramref name="target"/> is required.
+    /// Detected file properties and normalization decision.
     /// </summary>
-    internal static (DetectResult? Detected, bool RequiresConversion) Scan(
+    internal sealed record ScanResult(
+        DetectResult Detection,
+        bool RequiresConversion);
+
+    /// <summary>
+    /// Detects encoding, line endings, and whether normalization is needed.
+    /// </summary>
+    /// <returns>
+    /// <see langword="null"/> if the encoding is unknown.
+    /// </returns>
+    internal static ScanResult? Scan(
         Stream stream,
         LineEnding? target,
         CancellationToken cancellationToken = default)
@@ -28,26 +44,18 @@ internal static class ScanEngine
 
         if (encoding == null)
         {
-            return (null, false);
+            return null;
         }
 
-        (LineEndingKind kind, bool requiresConversion) =
-            TextEncoding.IsUnicodeEncoding(encoding)
-                ? ScanUnicode(stream, encoding, target, cancellationToken)
-                : ScanBytes(stream, target, cancellationToken);
-
-        var detected = new DetectResult(
-            encoding,
-            encoding.GetPreamble().Length > 0,
-            kind);
-
-        return (detected, requiresConversion);
+        return TextEncoding.IsUnicodeEncoding(encoding)
+            ? ScanUnicode(stream, encoding, target, cancellationToken)
+            : ScanBytes(stream, encoding, target, cancellationToken);
     }
 
     /// <summary>
-    /// Strictly decodes and classifies the stream in one pass.
+    /// Strictly decodes and scans Unicode input.
     /// </summary>
-    private static (LineEndingKind Kind, bool RequiresConversion) ScanUnicode(
+    private static ScanResult ScanUnicode(
         Stream stream,
         Encoding encoding,
         LineEnding? target,
@@ -55,7 +63,7 @@ internal static class ScanEngine
     {
         var decoder = encoding.GetDecoder();
 
-        // Reject malformed Unicode instead of silently replacing it.
+        // Reject malformed Unicode instead of replacing it.
         decoder.Fallback = DecoderFallback.ExceptionFallback;
 
         byte[] bytes = ArrayPool<byte>.Shared.Rent(BufferSize);
@@ -70,7 +78,7 @@ internal static class ScanEngine
             bool sawCr = false;
             bool pendingCr = false;
 
-            // Keep Unicode separators out of classification but require conversion.
+            // Unicode separators require conversion but are not classified.
             bool sawUnicodeLineSeparator = false;
 
             int read;
@@ -130,7 +138,9 @@ internal static class ScanEngine
                  (sawLf && t != LineEnding.Lf) ||
                  (sawCr && t != LineEnding.Cr));
 
-            return (kind, requiresConversion);
+            return new ScanResult(
+                new DetectResult(encoding, encoding.GetPreamble().Length > 0, kind),
+                requiresConversion);
         }
         finally
         {
@@ -140,11 +150,11 @@ internal static class ScanEngine
     }
 
     /// <summary>
-    /// Classifies and checks legacy files using raw bytes to avoid
-    /// decode/re-encode changes.
+    /// Scans legacy input as raw bytes.
     /// </summary>
-    private static (LineEndingKind Kind, bool RequiresConversion) ScanBytes(
+    private static ScanResult ScanBytes(
         Stream stream,
+        Encoding encoding,
         LineEnding? target,
         CancellationToken cancellationToken)
     {
@@ -204,7 +214,9 @@ internal static class ScanEngine
                  (sawLf && t != LineEnding.Lf) ||
                  (sawCr && t != LineEnding.Cr));
 
-            return (kind, requiresConversion);
+            return new ScanResult(
+                new DetectResult(encoding, encoding.GetPreamble().Length > 0, kind),
+                requiresConversion);
         }
         finally
         {

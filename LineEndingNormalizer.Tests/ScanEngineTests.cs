@@ -70,14 +70,14 @@ public sealed class ScanEngineTests
         {
             using Stream stream = OpenUtf8(content);
 
-            (DetectResult? detected, bool requiresConversion) =
+            ScanEngine.ScanResult? scan =
                 ScanEngine.Scan(stream, target);
 
-            Assert.NotNull(detected);
-            Assert.Equal(expectedKind, detected.LineEndingKind);
+            Assert.NotNull(scan);
+            Assert.Equal(expectedKind, scan.Detection.LineEndingKind);
             Assert.Equal(
                 ExpectedRequiresConversion(sawCrLf, sawLf, sawCr, target),
-                requiresConversion);
+                scan.RequiresConversion);
         }
     }
 
@@ -86,11 +86,10 @@ public sealed class ScanEngineTests
     {
         using Stream stream = OpenUtf8("");
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, LineEnding.Crlf);
 
-        Assert.Null(detected);
-        Assert.False(requiresConversion);
+        Assert.Null(scan);
     }
 
     // Representative subset, not the full matrix: ScanBytes is one algorithm
@@ -118,15 +117,15 @@ public sealed class ScanEngineTests
         {
             using Stream stream = OpenCp1252(suffix);
 
-            (DetectResult? detected, bool requiresConversion) =
+            ScanEngine.ScanResult? scan =
                 ScanEngine.Scan(stream, target);
 
-            Assert.NotNull(detected);
-            Assert.Equal(1252, detected.Encoding.CodePage);
-            Assert.Equal(expectedKind, detected.LineEndingKind);
+            Assert.NotNull(scan);
+            Assert.Equal(1252, scan.Detection.Encoding.CodePage);
+            Assert.Equal(expectedKind, scan.Detection.LineEndingKind);
             Assert.Equal(
                 ExpectedRequiresConversion(sawCrLf, sawLf, sawCr, target),
-                requiresConversion);
+                scan.RequiresConversion);
         }
     }
 
@@ -138,14 +137,14 @@ public sealed class ScanEngineTests
         // Non-ASCII byte so this genuinely detects as UTF-8, not US-ASCII.
         using Stream stream = OpenUtf8("caf" + "é" + "\rb\nc\r\nd");
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, target: null);
 
-        Assert.NotNull(detected);
-        Assert.Equal(Encoding.UTF8.WebName, detected.Encoding.WebName);
-        Assert.False(detected.HasBom);
-        Assert.Equal(LineEndingKind.Mixed, detected.LineEndingKind);
-        Assert.False(requiresConversion);
+        Assert.NotNull(scan);
+        Assert.Equal(Encoding.UTF8.WebName, scan.Detection.Encoding.WebName);
+        Assert.False(scan.Detection.HasBom);
+        Assert.Equal(LineEndingKind.Mixed, scan.Detection.LineEndingKind);
+        Assert.False(scan.RequiresConversion);
     }
 
     [Fact]
@@ -153,13 +152,13 @@ public sealed class ScanEngineTests
     {
         using Stream stream = OpenCp1252("a\rb\nc\r\nd");
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, target: null);
 
-        Assert.NotNull(detected);
-        Assert.Equal(1252, detected.Encoding.CodePage);
-        Assert.Equal(LineEndingKind.Mixed, detected.LineEndingKind);
-        Assert.False(requiresConversion);
+        Assert.NotNull(scan);
+        Assert.Equal(1252, scan.Detection.Encoding.CodePage);
+        Assert.Equal(LineEndingKind.Mixed, scan.Detection.LineEndingKind);
+        Assert.False(scan.RequiresConversion);
     }
 
     // ---- Test 3: NEL/LS/PS asymmetry ----
@@ -179,12 +178,12 @@ public sealed class ScanEngineTests
 
         using Stream stream = OpenUtf8(sb.ToString());
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, LineEnding.Crlf);
 
-        Assert.NotNull(detected);
-        Assert.Equal(LineEndingKind.None, detected.LineEndingKind);
-        Assert.True(requiresConversion);
+        Assert.NotNull(scan);
+        Assert.Equal(LineEndingKind.None, scan.Detection.LineEndingKind);
+        Assert.True(scan.RequiresConversion);
     }
 
     [Fact]
@@ -203,12 +202,12 @@ public sealed class ScanEngineTests
         // Target matches the only *classified* line ending (CRLF), so
         // without the separator this would be Unchanged - proving the
         // separator alone is what forces conversion here.
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, LineEnding.Crlf);
 
-        Assert.NotNull(detected);
-        Assert.Equal(LineEndingKind.Crlf, detected.LineEndingKind);
-        Assert.True(requiresConversion);
+        Assert.NotNull(scan);
+        Assert.Equal(LineEndingKind.Crlf, scan.Detection.LineEndingKind);
+        Assert.True(scan.RequiresConversion);
     }
 
     // ---- Test 4: buffer-boundary CR/LF ----
@@ -223,12 +222,12 @@ public sealed class ScanEngineTests
 
         using Stream stream = OpenUtf8(content);
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, LineEnding.Lf);
 
-        Assert.NotNull(detected);
-        Assert.Equal(LineEndingKind.Crlf, detected.LineEndingKind);
-        Assert.True(requiresConversion);
+        Assert.NotNull(scan);
+        Assert.Equal(LineEndingKind.Crlf, scan.Detection.LineEndingKind);
+        Assert.True(scan.RequiresConversion);
     }
 
     [Fact]
@@ -239,12 +238,12 @@ public sealed class ScanEngineTests
 
         using Stream stream = OpenUtf8(content);
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, LineEnding.Crlf);
 
-        Assert.NotNull(detected);
-        Assert.Equal(LineEndingKind.Cr, detected.LineEndingKind);
-        Assert.True(requiresConversion);
+        Assert.NotNull(scan);
+        Assert.Equal(LineEndingKind.Cr, scan.Detection.LineEndingKind);
+        Assert.True(scan.RequiresConversion);
     }
 
     [Fact]
@@ -252,12 +251,12 @@ public sealed class ScanEngineTests
     {
         using Stream stream = OpenUtf8("abc\r");
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, LineEnding.Cr);
 
-        Assert.NotNull(detected);
-        Assert.Equal(LineEndingKind.Cr, detected.LineEndingKind);
-        Assert.False(requiresConversion);
+        Assert.NotNull(scan);
+        Assert.Equal(LineEndingKind.Cr, scan.Detection.LineEndingKind);
+        Assert.False(scan.RequiresConversion);
     }
 
     [Fact]
@@ -274,13 +273,13 @@ public sealed class ScanEngineTests
 
         using Stream stream = new MemoryStream(cp1252.GetBytes(content));
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, LineEnding.Lf);
 
-        Assert.NotNull(detected);
-        Assert.Equal(1252, detected.Encoding.CodePage);
-        Assert.Equal(LineEndingKind.Crlf, detected.LineEndingKind);
-        Assert.True(requiresConversion);
+        Assert.NotNull(scan);
+        Assert.Equal(1252, scan.Detection.Encoding.CodePage);
+        Assert.Equal(LineEndingKind.Crlf, scan.Detection.LineEndingKind);
+        Assert.True(scan.RequiresConversion);
     }
 
     // ---- Test 5: UTF-8 decoder boundary ----
@@ -301,12 +300,12 @@ public sealed class ScanEngineTests
 
         using Stream stream = OpenUtf8(content);
 
-        (DetectResult? detected, bool requiresConversion) =
+        ScanEngine.ScanResult? scan =
             ScanEngine.Scan(stream, LineEnding.Crlf);
 
-        Assert.NotNull(detected);
-        Assert.Equal(LineEndingKind.Lf, detected.LineEndingKind);
-        Assert.True(requiresConversion);
+        Assert.NotNull(scan);
+        Assert.Equal(LineEndingKind.Lf, scan.Detection.LineEndingKind);
+        Assert.True(scan.RequiresConversion);
     }
 
     // ---- Test 6: malformed Unicode after an early mismatch (full-scan regression) ----
@@ -384,26 +383,25 @@ public sealed class ScanEngineTests
         using var dir = new TempDirectory();
         string path = dir.WriteFile("cross.txt", Encoding.UTF8.GetBytes(content));
 
-        DetectResult? scanResult;
-        bool requiresConversion;
+        ScanEngine.ScanResult? scan;
 
         using (Stream stream = File.OpenRead(path))
         {
-            (scanResult, requiresConversion) = ScanEngine.Scan(stream, target);
+            scan = ScanEngine.Scan(stream, target);
         }
 
         DetectResult? detectResult = NewLineNormalizer.DetectFile(path);
         NormalizeResult normalizeResult = NewLineNormalizer.NormalizeFile(path, target, whatIf: true);
 
-        Assert.NotNull(scanResult);
+        Assert.NotNull(scan);
         Assert.NotNull(detectResult);
 
-        Assert.Equal(scanResult.Encoding, detectResult.Encoding);
-        Assert.Equal(scanResult.HasBom, detectResult.HasBom);
-        Assert.Equal(scanResult.LineEndingKind, detectResult.LineEndingKind);
+        Assert.Equal(scan.Detection.Encoding, detectResult.Encoding);
+        Assert.Equal(scan.Detection.HasBom, detectResult.HasBom);
+        Assert.Equal(scan.Detection.LineEndingKind, detectResult.LineEndingKind);
 
         NormalizeResult expected =
-            requiresConversion ? NormalizeResult.Converted : NormalizeResult.Unchanged;
+            scan.RequiresConversion ? NormalizeResult.Converted : NormalizeResult.Unchanged;
 
         Assert.Equal(expected, normalizeResult);
     }
@@ -418,17 +416,17 @@ public sealed class ScanEngineTests
 
         DetectResult? viaDetectFile = NewLineNormalizer.DetectFile(path);
 
-        DetectResult? viaScan;
+        ScanEngine.ScanResult? viaScan;
         using (Stream stream = File.OpenRead(path))
         {
-            (viaScan, _) = ScanEngine.Scan(stream, target: null);
+            viaScan = ScanEngine.Scan(stream, target: null);
         }
 
         Assert.NotNull(viaDetectFile);
         Assert.NotNull(viaScan);
-        Assert.Equal(viaScan.Encoding, viaDetectFile.Encoding);
-        Assert.Equal(viaScan.HasBom, viaDetectFile.HasBom);
-        Assert.Equal(viaScan.LineEndingKind, viaDetectFile.LineEndingKind);
+        Assert.Equal(viaScan.Detection.Encoding, viaDetectFile.Encoding);
+        Assert.Equal(viaScan.Detection.HasBom, viaDetectFile.HasBom);
+        Assert.Equal(viaScan.Detection.LineEndingKind, viaDetectFile.LineEndingKind);
     }
 
     // ---- Test 9: cancellation ----
