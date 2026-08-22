@@ -126,6 +126,31 @@ public sealed class ProgramEndToEndTests
     }
 
     [Fact]
+    public void Report_InsideScannedDirectory_IsNeverRescannedOnALaterRun()
+    {
+        using var dir = new TempDirectory();
+
+        dir.WriteFile("a.txt", Encoding.ASCII.GetBytes("x\r\n"));
+        dir.WriteFile("b.txt", Encoding.ASCII.GetBytes("x\n"));
+
+        // Unlike Report_RowCountUnaffectedByQuietOrVerbose, this report path is
+        // deliberately inside the scanned directory - excludedFullPath in
+        // DirectoryTraversal.EnumerateCandidateFiles must keep it out of both
+        // this run's own candidate list and any later run's.
+        string reportPath = dir.CombinePath("report.csv");
+
+        RunMain(["-BasePath", dir.Path, "-Target", "CRLF", "-WhatIf", "-Quiet", "-Report", reportPath], out _, out _);
+
+        // Header + 2 data rows; the report itself must not appear as a third row.
+        Assert.Equal(3, File.ReadAllLines(reportPath).Length);
+
+        RunMain(["-BasePath", dir.Path, "-Target", "CRLF", "-WhatIf", "-Quiet", "-Report", reportPath], out _, out _);
+
+        // Second run: still just the 2 real files, not 3 (the report from run 1).
+        Assert.Equal(3, File.ReadAllLines(reportPath).Length);
+    }
+
+    [Fact]
     public void ValidateOnly_HidesAlreadyNormalizedByDefault_ShowsUnderVerbose()
     {
         using var dir = new TempDirectory();

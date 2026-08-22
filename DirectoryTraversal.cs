@@ -37,7 +37,8 @@ internal static class DirectoryTraversal
     /// </summary>
     internal static IEnumerable<string> EnumerateCandidateFiles(
         string basePath,
-        Action<string>? onWarning = null)
+        Action<string>? onWarning = null,
+        string? excludedFullPath = null)
     {
         var pending = new Stack<string>();
 
@@ -87,6 +88,12 @@ internal static class DirectoryTraversal
             {
                 foreach (var file in files)
                 {
+                    if (excludedFullPath is not null &&
+                        string.Equals(file, excludedFullPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     yield return file;
                 }
             }

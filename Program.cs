@@ -720,7 +720,8 @@ internal static class Program
         var candidateFiles =
             DirectoryTraversal.EnumerateCandidateFiles(
                 options.BasePath ?? "",
-                onWarning: PrintTraversalWarning)
+                onWarning: PrintTraversalWarning,
+                excludedFullPath: options.Report is null ? null : Path.GetFullPath(options.Report))
             .Where(file =>
                 DirectoryTraversal.IsCandidateFile(
                     Path.GetFileName(file),
@@ -1062,7 +1063,8 @@ internal static class Program
         var candidateFiles =
             DirectoryTraversal.EnumerateCandidateFiles(
                 options.BasePath ?? "",
-                onWarning: PrintTraversalWarning)
+                onWarning: PrintTraversalWarning,
+                excludedFullPath: options.Report is null ? null : Path.GetFullPath(options.Report))
             .Where(file =>
                 DirectoryTraversal.IsCandidateFile(
                     Path.GetFileName(file),
