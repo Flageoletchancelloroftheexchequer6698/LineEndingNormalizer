@@ -5,27 +5,8 @@ using System.Text.RegularExpressions;
 namespace LineEndingNormalizer;
 
 /// <summary>
-/// Line Ending Normalizer command-line application.
-///
-/// Features:
-/// - Recursively processes files with wildcard include/exclude patterns.
-/// - Skips binary files and common VCS/build directories.
-/// - Never traverses directory symlinks or junctions.
-/// - Handles arbitrarily large files with bounded memory usage.
-/// - Preserves detected encoding and BOM state.
-/// - Detects BOM-based and BOM-less Unicode and legacy encodings.
-/// - Avoids modifying files whose encoding cannot be safely determined.
-/// - Detects and normalizes CRLF, LF, CR, NEL, LS, and PS line separators.
-/// - Reports mixed or absent line endings as MIXED or NONE.
-/// - Rewrites files only when conversion is required.
-/// - Preserves all file content except the line-ending changes requested.
-/// - Uses atomic replacement and preserves file attributes/timestamps.
-/// - Optionally creates a .bak copy before replacement.
-/// - Supports normal, -WhatIf, -ValidateOnly, and -DetectOnly modes.
-/// - Supports CSV reporting, deterministic output, quiet output, and
-///   configurable bounded parallelism.
-/// - Supports -FailOnChanges for CI validation.
-/// - Reports per-file failures without aborting the entire scan.
+/// CLI for detecting and normalizing line endings while preserving encoding,
+/// BOM state, file content, and file metadata.
 /// </summary>
 internal static class Program
 {
@@ -45,7 +26,7 @@ internal static class Program
     private const int ExitDirectoryNotFound = 2;
 
     /// <summary>
-    /// One or more processing/report errors occurred.
+    /// Processing or reporting errors occurred.
     /// </summary>
     private const int ExitProcessingErrors = 3;
 
@@ -55,12 +36,12 @@ internal static class Program
     private const int ExitChangesNeeded = 4;
 
     /// <summary>
-    /// -BasePath is a symbolic link, junction, or other reparse point.
+    /// -BasePath is a reparse point.
     /// </summary>
     private const int ExitReparsePointRoot = 5;
 
     /// <summary>
-    /// The scan was cancelled (Ctrl+C).
+    /// Scan cancelled by Ctrl+C.
     /// </summary>
     private const int ExitCancelled = 6;
 
@@ -69,9 +50,6 @@ internal static class Program
     /// </summary>
     private static readonly Lock ConsoleLock = new();
 
-    /// <summary>
-    /// Default maximum degree of parallelism.
-    /// </summary>
     private const int DefaultMaxParallelism = 4;
 
     /// <summary>
@@ -128,8 +106,7 @@ internal static class Program
 
         ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
-            // Let the scan observe cancellation and unwind cleanly instead of the
-            // process being torn down mid-write.
+            // Allow in-flight operations to stop safely.
             e.Cancel = true;
             cancellation.Cancel();
         };
@@ -140,7 +117,7 @@ internal static class Program
         {
             if (options.DetectOnly)
             {
-                // DetectOnly is strictly read-only and emits CSV to stdout.
+                // Keep detection strictly read-only.
                 return RunDetectOnly(options, cancellation.Token);
             }
 
@@ -196,8 +173,7 @@ internal static class Program
 
             Console.WriteLine();
 
-            PrintSummary(statistics,
-                mode);
+            PrintSummary(statistics, mode);
 
             if (!reportOk ||
                 statistics.Errors > 0)
@@ -322,9 +298,7 @@ internal static class Program
                     break;
 
                 case "-verbose":
-
                     options.Verbose = true;
-
                     break;
 
                 case "-previewonly":
@@ -333,45 +307,31 @@ internal static class Program
                         "-PreviewOnly has been renamed to -WhatIf.");
 
                 case "-whatif":
-
                     options.WhatIf = true;
-
                     break;
 
                 case "-validateonly":
-
                     options.ValidateOnly = true;
-
                     break;
 
                 case "-failonchanges":
-
                     options.FailOnChanges = true;
-
                     break;
 
                 case "-quiet":
-
                     options.Quiet = true;
-
                     break;
 
                 case "-backup":
-
                     options.Backup = true;
-
                     break;
 
                 case "-detectonly":
-
                     options.DetectOnly = true;
-
                     break;
 
                 case "-deterministic":
-
                     options.Deterministic = true;
-
                     break;
 
                 case "-report":
@@ -387,14 +347,15 @@ internal static class Program
                     break;
 
                 case "-fullpath":
-
                     options.FullPath = true;
-
                     break;
 
                 case "-maxparallelism":
 
-                    if (!TryTakeValue(args, ref i, out string? maxParallelismText))
+                    if (!TryTakeValue(
+                            args,
+                            ref i,
+                            out string? maxParallelismText))
                     {
                         throw new ArgumentException(
                             "Missing value for -MaxParallelism.");
@@ -444,8 +405,7 @@ internal static class Program
         return options;
     }
 
-
-    // Lets TryTakeValue detect "-BasePath -Verbose" as a missing value, not a path.
+    // Prevents a known flag from being consumed as another flag's value.
     private static readonly HashSet<string> KnownFlagNames =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -479,9 +439,8 @@ internal static class Program
         return true;
     }
 
-
     /// <summary>
-    /// Splits comma/semicolon-separated patterns and removes empty entries.
+    /// Splits pattern lists and removes empty entries.
     /// </summary>
     private static string[] SplitPatterns(
         string arg)
@@ -504,10 +463,8 @@ internal static class Program
         return patterns;
     }
 
-
     /// <summary>
-    /// Prints a directory-traversal warning under the console lock, matching
-    /// the DarkYellow presentation used elsewhere for non-fatal scan issues.
+    /// Keeps traversal warnings consistent with other non-fatal diagnostics.
     /// </summary>
     private static void PrintTraversalWarning(string message)
     {
@@ -519,12 +476,10 @@ internal static class Program
         }
     }
 
-
     #region Normalize / WhatIf / ValidateOnly
 
     /// <summary>
-    /// Processing result for one file. The same ResultLabel is used by
-    /// console and CSV output.
+    /// Captures the processing result used by console and CSV output.
     /// </summary>
     private sealed record FileOutcome(
         string DisplayPath,
@@ -536,10 +491,8 @@ internal static class Program
         bool IsError,
         string? ErrorMessage);
 
-
     /// <summary>
-    /// Detects optional report information before processing, then
-    /// normalizes, previews, or validates the file.
+    /// Detects before processing so reports describe the original file.
     /// </summary>
     private static FileOutcome ComputeFileOutcome(
         string file,
@@ -564,20 +517,19 @@ internal static class Program
 
         DetectResult? detected = null;
 
-        //
-        // Detect before NormalizeFile so a report describes the original
-        // file rather than the already-converted file.
-        //
         if (options.Report != null)
         {
             try
             {
                 detected =
-                    NewLineNormalizer.DetectFile(file, cancellationToken);
+                    NewLineNormalizer.DetectFile(
+                        file,
+                        cancellationToken);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (
+                ex is not OperationCanceledException)
             {
-                // Report detection is best-effort.
+                // Detection must not prevent normalization.
             }
         }
 
@@ -616,7 +568,8 @@ internal static class Program
                 IsError: false,
                 ErrorMessage: null);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (
+            ex is not OperationCanceledException)
         {
             statistics.IncrementErrors();
 
@@ -632,9 +585,8 @@ internal static class Program
         }
     }
 
-
     /// <summary>
-    /// Maps an operation result to its mode-specific report label.
+    /// Maps an operation result to its mode-specific label.
     /// </summary>
     private static string GetResultLabel(
         NormalizeResult result,
@@ -669,11 +621,8 @@ internal static class Program
         };
     }
 
-
     /// <summary>
-    /// Determines whether a normal result is shown on the console.
-    /// Unchanged files require -Verbose; all other results require
-    /// -Quiet to be suppressed.
+    /// Unchanged files are shown only with -Verbose.
     /// </summary>
     private static bool GetConsoleVisibility(
         NormalizeResult result,
@@ -689,9 +638,8 @@ internal static class Program
         };
     }
 
-
     /// <summary>
-    /// Emits one processing result under the console lock.
+    /// Emits one result while keeping parallel console output intact.
     /// </summary>
     private static void EmitConsole(
         FileOutcome outcome,
@@ -766,15 +714,8 @@ internal static class Program
         }
     }
 
-
     /// <summary>
-    /// Processes candidate files with bounded parallelism.
-    ///
-    /// With -Deterministic, files and console output are ordinal-sorted.
-    /// Without it, console output is emitted as files complete.
-    ///
-    /// When -Report is specified, report rows are always ordinal-sorted,
-    /// independently of -Deterministic.
+    /// Processes files with bounded parallelism.
     /// </summary>
     private static bool RunConvertOrValidate(
         Options options,
@@ -796,10 +737,14 @@ internal static class Program
             DirectoryTraversal.EnumerateCandidateFiles(
                 options.BasePath ?? "",
                 onWarning: PrintTraversalWarning,
-                excludedFullPath: options.Report is null ? null : Path.GetFullPath(options.Report))
+                excludedFullPath: options.Report is null
+                    ? null
+                    : Path.GetFullPath(options.Report))
             .Where(file =>
                 DirectoryTraversal.IsCandidateFile(
-                    Path.GetRelativePath(options.BasePath ?? "", file).Replace('\\', '/'),
+                    Path.GetRelativePath(
+                        options.BasePath ?? "",
+                        file).Replace('\\', '/'),
                     includePatterns,
                     excludePatterns));
 
@@ -827,7 +772,9 @@ internal static class Program
             Parallel.For(
                 0,
                 files.Count,
-                CreateParallelOptions(options, cancellationToken),
+                CreateParallelOptions(
+                    options,
+                    cancellationToken),
                 i =>
                 {
                     outcomes[i] =
@@ -856,7 +803,9 @@ internal static class Program
         {
             Parallel.ForEach(
                 candidateFiles,
-                CreateParallelOptions(options, cancellationToken),
+                CreateParallelOptions(
+                    options,
+                    cancellationToken),
                 file =>
                 {
                     FileOutcome outcome =
@@ -925,10 +874,8 @@ internal static class Program
         return false;
     }
 
-
     /// <summary>
-    /// Builds one normal/-WhatIf/-ValidateOnly report row.
-    /// Detection columns remain blank when optional detection failed.
+    /// Builds a stable normalization report row.
     /// </summary>
     private static string BuildNormalizeCsvRow(
         FileOutcome outcome,
@@ -959,9 +906,8 @@ internal static class Program
 
     #endregion
 
-
     /// <summary>
-    /// Converts a detection result into stable report columns.
+    /// Converts detection data to stable report values.
     /// </summary>
     private static (
         string Encoding,
@@ -981,7 +927,6 @@ internal static class Program
             GetLineEndingKindDisplayName(
                 result.LineEndingKind));
     }
-
 
     /// <summary>
     /// Creates bounded parallel-processing options.
@@ -1006,11 +951,10 @@ internal static class Program
         };
     }
 
-
     #region -DetectOnly
 
     /// <summary>
-    /// Result of scanning one file in -DetectOnly mode.
+    /// Captures read-only detection results.
     /// </summary>
     private sealed record DetectOutcome(
         string DisplayPath,
@@ -1018,7 +962,6 @@ internal static class Program
         DetectResult? Detected,
         bool IsError,
         string? Message);
-
 
     /// <summary>
     /// Performs read-only detection for one file.
@@ -1047,7 +990,8 @@ internal static class Program
                 IsError: false,
                 Message: null);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (
+            ex is not OperationCanceledException)
         {
             return new DetectOutcome(
                 displayPath,
@@ -1057,7 +1001,6 @@ internal static class Program
                 Message: ex.Message);
         }
     }
-
 
     /// <summary>
     /// Builds one -DetectOnly CSV row.
@@ -1080,9 +1023,8 @@ internal static class Program
             EscapeCsvField(displayPath));
     }
 
-
     /// <summary>
-    /// Emits one DetectOnly result.
+    /// Emits one detection result.
     /// </summary>
     private static void EmitDetectConsole(
         DetectOutcome outcome)
@@ -1123,10 +1065,8 @@ internal static class Program
         }
     }
 
-
     /// <summary>
-    /// Runs the strictly read-only -DetectOnly pipeline.
-    /// Stdout contains CSV; diagnostics are written to stderr.
+    /// Runs strictly read-only detection; stdout remains CSV.
     /// </summary>
     private static int RunDetectOnly(
         Options options,
@@ -1146,10 +1086,14 @@ internal static class Program
             DirectoryTraversal.EnumerateCandidateFiles(
                 options.BasePath ?? "",
                 onWarning: PrintTraversalWarning,
-                excludedFullPath: options.Report is null ? null : Path.GetFullPath(options.Report))
+                excludedFullPath: options.Report is null
+                    ? null
+                    : Path.GetFullPath(options.Report))
             .Where(file =>
                 DirectoryTraversal.IsCandidateFile(
-                    Path.GetRelativePath(options.BasePath ?? "", file).Replace('\\', '/'),
+                    Path.GetRelativePath(
+                        options.BasePath ?? "",
+                        file).Replace('\\', '/'),
                     includePatterns,
                     excludePatterns));
 
@@ -1182,7 +1126,9 @@ internal static class Program
             Parallel.For(
                 0,
                 files.Count,
-                CreateParallelOptions(options, cancellationToken),
+                CreateParallelOptions(
+                    options,
+                    cancellationToken),
                 i =>
                 {
                     outcomes[i] =
@@ -1213,7 +1159,9 @@ internal static class Program
         {
             Parallel.ForEach(
                 candidateFiles,
-                CreateParallelOptions(options, cancellationToken),
+                CreateParallelOptions(
+                    options,
+                    cancellationToken),
                 file =>
                 {
                     DetectOutcome outcome =
@@ -1291,9 +1239,8 @@ internal static class Program
 
     #endregion
 
-
     /// <summary>
-    /// Writes a UTF-8 CSV report with CRLF row terminators.
+    /// Writes UTF-8 CSV with stable CRLF row terminators.
     /// </summary>
     private static bool TryWriteReportFile(
         string path,
@@ -1335,7 +1282,6 @@ internal static class Program
         }
     }
 
-
     /// <summary>
     /// Maps line-ending kinds to stable CSV names.
     /// </summary>
@@ -1354,7 +1300,6 @@ internal static class Program
                 nameof(kind))
         };
     }
-
 
     /// <summary>
     /// Maps detected encodings to stable display names.
@@ -1412,7 +1357,6 @@ internal static class Program
         return encoding.WebName;
     }
 
-
     /// <summary>
     /// Escapes a CSV field according to RFC 4180.
     /// </summary>
@@ -1437,10 +1381,8 @@ internal static class Program
                "\"";
     }
 
-
     /// <summary>
-    /// Formats a path for output. File operations continue to use
-    /// the original path.
+    /// Formats output paths without changing file-operation paths.
     /// </summary>
     internal static string FormatDisplayPath(
         string file,
@@ -1455,7 +1397,6 @@ internal static class Program
             options.BasePath ?? file,
             file);
     }
-
 
     /// <summary>
     /// Prints final processing statistics.
@@ -1533,7 +1474,6 @@ internal static class Program
             "Failed",
             statistics.Errors);
     }
-
 
     /// <summary>
     /// Displays command-line usage.

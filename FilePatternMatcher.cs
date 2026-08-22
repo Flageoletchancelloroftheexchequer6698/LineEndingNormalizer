@@ -3,9 +3,9 @@
 namespace LineEndingNormalizer;
 
 /// <summary>
-/// Wildcard filename/path matching via regular expressions. A pattern with no "/" or "\"
-/// matches the bare filename; one with a separator matches the path relative to the scan
-/// root instead (see DirectoryTraversal.EnumerateCandidateFiles). "\" is normalized to "/".
+/// Matches wildcard filenames and relative paths.
+/// Patterns without a separator match filenames; patterns with a separator
+/// match paths relative to the scan root. '\' is treated as '/'.
 /// </summary>
 internal static partial class FilePatternMatcher
 {
@@ -15,7 +15,7 @@ internal static partial class FilePatternMatcher
     private static partial Regex MatchAllRegex();
 
     /// <summary>
-    /// Determines whether the specified filename matches any wildcard pattern.
+    /// Returns true when any pattern matches the filename/path.
     /// Supports '*' and '?' using a case-insensitive comparison.
     /// </summary>
     public static bool IsMatch(
@@ -35,7 +35,7 @@ internal static partial class FilePatternMatcher
 
 
     /// <summary>
-    /// Compiles wildcard patterns into regular expressions.
+    /// Converts wildcard patterns to compiled regexes.
     /// </summary>
     public static List<Regex> Compile(
         List<string> patterns)
@@ -67,7 +67,7 @@ internal static partial class FilePatternMatcher
                     RegexOptions.Compiled));
         }
 
-        // Treat an empty pattern list as "*".
+        // Empty input means match everything.
         if (result.Count == 0)
         {
             result.Add(MatchAllRegex());
