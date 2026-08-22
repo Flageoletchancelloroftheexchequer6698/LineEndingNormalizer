@@ -723,119 +723,25 @@ internal static class Program
         ProcessingMode mode,
         CancellationToken cancellationToken)
     {
-        var includePatterns =
-            FilePatternMatcher.Compile(
-                options.IncludePatterns);
+        bool wantsReport = options.Report != null;
 
-        List<Regex>? excludePatterns =
-            options.ExcludePatterns.Count > 0
-                ? FilePatternMatcher.Compile(
-                    options.ExcludePatterns)
-                : null;
-
-        var candidateFiles =
-            DirectoryTraversal.EnumerateCandidateFiles(
-                options.BasePath ?? "",
-                onWarning: PrintTraversalWarning,
-                excludedFullPath: options.Report is null
-                    ? null
-                    : Path.GetFullPath(options.Report))
-            .Where(file =>
-                DirectoryTraversal.IsCandidateFile(
-                    Path.GetRelativePath(
-                        options.BasePath ?? "",
-                        file).Replace('\\', '/'),
-                    includePatterns,
-                    excludePatterns));
-
-        bool wantsReport =
-            options.Report != null;
-
-        List<FileOutcome>? reportOutcomes =
-            wantsReport
-                ? []
-                : null;
-
-        var reportOutcomesLock = new Lock();
-
-        if (options.Deterministic)
-        {
-            List<string> files =
-                [.. candidateFiles];
-
-            files.Sort(
-                StringComparer.Ordinal);
-
-            var outcomes =
-                new FileOutcome[files.Count];
-
-            Parallel.For(
-                0,
-                files.Count,
-                CreateParallelOptions(
+        FileOutcome[]? outcomes = ProcessFiles(
+            EnumerateCandidates(options),
+            options,
+            cancellationToken,
+            collectResults: wantsReport,
+            process: file =>
+                ComputeFileOutcome(
+                    file,
                     options,
+                    mode,
+                    statistics,
                     cancellationToken),
-                i =>
-                {
-                    outcomes[i] =
-                        ComputeFileOutcome(
-                            files[i],
-                            options,
-                            mode,
-                            statistics,
-                            cancellationToken);
-                });
-
-            foreach (var outcome in outcomes)
-            {
+            emit: outcome =>
                 EmitConsole(
                     outcome,
-                    mode);
-            }
-
-            if (wantsReport)
-            {
-                reportOutcomes =
-                    [.. outcomes];
-            }
-        }
-        else
-        {
-            Parallel.ForEach(
-                candidateFiles,
-                CreateParallelOptions(
-                    options,
-                    cancellationToken),
-                file =>
-                {
-                    FileOutcome outcome =
-                        ComputeFileOutcome(
-                            file,
-                            options,
-                            mode,
-                            statistics,
-                            cancellationToken);
-
-                    EmitConsole(
-                        outcome,
-                        mode);
-
-                    if (wantsReport)
-                    {
-                        lock (reportOutcomesLock)
-                        {
-                            reportOutcomes!.Add(
-                                outcome);
-                        }
-                    }
-                });
-
-            reportOutcomes?.Sort(
-                (a, b) =>
-                    string.CompareOrdinal(
-                        a.SortKey,
-                        b.SortKey));
-        }
+                    mode),
+            sortKey: outcome => outcome.SortKey);
 
         if (!wantsReport)
         {
@@ -844,7 +750,7 @@ internal static class Program
 
         List<string> rows =
             [..
-                reportOutcomes!.Select(
+                outcomes!.Select(
                     outcome =>
                         BuildNormalizeCsvRow(
                             outcome,
@@ -949,6 +855,120 @@ internal static class Program
             MaxDegreeOfParallelism =
                 maxDegreeOfParallelism
         };
+    }
+
+    /// <summary>
+    /// Candidate enumeration shared by Convert/Validate/WhatIf and DetectOnly.
+    /// </summary>
+    private static IEnumerable<string> EnumerateCandidates(
+        Options options)
+    {
+        var includePatterns =
+            FilePatternMatcher.Compile(
+                options.IncludePatterns);
+
+        List<Regex>? excludePatterns =
+            options.ExcludePatterns.Count > 0
+                ? FilePatternMatcher.Compile(
+                    options.ExcludePatterns)
+                : null;
+
+        return DirectoryTraversal.EnumerateCandidateFiles(
+                options.BasePath ?? "",
+                onWarning: PrintTraversalWarning,
+                excludedFullPath: options.Report is null
+                    ? null
+                    : Path.GetFullPath(options.Report))
+            .Where(file =>
+                DirectoryTraversal.IsCandidateFile(
+                    Path.GetRelativePath(
+                        options.BasePath ?? "",
+                        file).Replace('\\', '/'),
+                    includePatterns,
+                    excludePatterns));
+    }
+
+    /// <summary>
+    /// Deterministic-vs-parallel dispatch shared by Convert/Validate/WhatIf and
+    /// DetectOnly. Per-file computation and result semantics stay with the caller.
+    /// Never catches or transforms exceptions from <paramref name="process"/>:
+    /// per-file errors remain the caller's responsibility, and cancellation
+    /// still propagates uncaught through Parallel.For/ForEach.
+    /// </summary>
+    private static TOutcome[]? ProcessFiles<TOutcome>(
+        IEnumerable<string> candidateFiles,
+        Options options,
+        CancellationToken cancellationToken,
+        bool collectResults,
+        Func<string, TOutcome> process,
+        Action<TOutcome> emit,
+        Func<TOutcome, string> sortKey)
+    {
+        if (options.Deterministic)
+        {
+            List<string> files =
+                [.. candidateFiles];
+
+            files.Sort(
+                StringComparer.Ordinal);
+
+            var outcomes =
+                new TOutcome[files.Count];
+
+            Parallel.For(
+                0,
+                files.Count,
+                CreateParallelOptions(
+                    options,
+                    cancellationToken),
+                i =>
+                {
+                    outcomes[i] =
+                        process(files[i]);
+                });
+
+            foreach (var outcome in outcomes)
+            {
+                emit(outcome);
+            }
+
+            return collectResults ? outcomes : null;
+        }
+
+        List<TOutcome>? collected =
+            collectResults ? [] : null;
+
+        var collectedLock = new Lock();
+
+        Parallel.ForEach(
+            candidateFiles,
+            CreateParallelOptions(
+                options,
+                cancellationToken),
+            file =>
+            {
+                TOutcome outcome =
+                    process(file);
+
+                emit(outcome);
+
+                if (collectResults)
+                {
+                    lock (collectedLock)
+                    {
+                        collected!.Add(
+                            outcome);
+                    }
+                }
+            });
+
+        collected?.Sort(
+            (a, b) =>
+                string.CompareOrdinal(
+                    sortKey(a),
+                    sortKey(b)));
+
+        return collected?.ToArray();
     }
 
     #region -DetectOnly
@@ -1072,135 +1092,40 @@ internal static class Program
         Options options,
         CancellationToken cancellationToken)
     {
-        var includePatterns =
-            FilePatternMatcher.Compile(
-                options.IncludePatterns);
-
-        List<Regex>? excludePatterns =
-            options.ExcludePatterns.Count > 0
-                ? FilePatternMatcher.Compile(
-                    options.ExcludePatterns)
-                : null;
-
-        var candidateFiles =
-            DirectoryTraversal.EnumerateCandidateFiles(
-                options.BasePath ?? "",
-                onWarning: PrintTraversalWarning,
-                excludedFullPath: options.Report is null
-                    ? null
-                    : Path.GetFullPath(options.Report))
-            .Where(file =>
-                DirectoryTraversal.IsCandidateFile(
-                    Path.GetRelativePath(
-                        options.BasePath ?? "",
-                        file).Replace('\\', '/'),
-                    includePatterns,
-                    excludePatterns));
-
         Console.WriteLine(
             "LineEnding,Encoding,BOM,File");
 
-        bool wantsReport =
-            options.Report != null;
-
-        List<DetectOutcome>? reportOutcomes =
-            wantsReport
-                ? []
-                : null;
-
-        var reportOutcomesLock = new Lock();
-
+        bool wantsReport = options.Report != null;
         int errorCount = 0;
 
-        if (options.Deterministic)
-        {
-            List<string> files =
-                [.. candidateFiles];
-
-            files.Sort(
-                StringComparer.Ordinal);
-
-            var outcomes =
-                new DetectOutcome[files.Count];
-
-            Parallel.For(
-                0,
-                files.Count,
-                CreateParallelOptions(
+        DetectOutcome[]? outcomes = ProcessFiles(
+            EnumerateCandidates(options),
+            options,
+            cancellationToken,
+            collectResults: wantsReport,
+            process: file =>
+                ComputeDetectOutcome(
+                    file,
                     options,
                     cancellationToken),
-                i =>
-                {
-                    outcomes[i] =
-                        ComputeDetectOutcome(
-                            files[i],
-                            options,
-                            cancellationToken);
-                });
-
-            foreach (var outcome in outcomes)
+            emit: outcome =>
             {
                 if (outcome.IsError)
                 {
-                    errorCount++;
+                    Interlocked.Increment(
+                        ref errorCount);
                 }
 
                 EmitDetectConsole(
                     outcome);
-            }
-
-            if (wantsReport)
-            {
-                reportOutcomes =
-                    [.. outcomes];
-            }
-        }
-        else
-        {
-            Parallel.ForEach(
-                candidateFiles,
-                CreateParallelOptions(
-                    options,
-                    cancellationToken),
-                file =>
-                {
-                    DetectOutcome outcome =
-                        ComputeDetectOutcome(
-                            file,
-                            options,
-                            cancellationToken);
-
-                    if (outcome.IsError)
-                    {
-                        Interlocked.Increment(
-                            ref errorCount);
-                    }
-
-                    EmitDetectConsole(
-                        outcome);
-
-                    if (wantsReport)
-                    {
-                        lock (reportOutcomesLock)
-                        {
-                            reportOutcomes!.Add(
-                                outcome);
-                        }
-                    }
-                });
-
-            reportOutcomes?.Sort(
-                (a, b) =>
-                    string.CompareOrdinal(
-                        a.SortKey,
-                        b.SortKey));
-        }
+            },
+            sortKey: outcome => outcome.SortKey);
 
         if (wantsReport)
         {
             List<string> rows =
                 [..
-                    reportOutcomes!
+                    outcomes!
                         .Where(o =>
                             o.Detected != null)
                         .Select(o =>
