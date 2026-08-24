@@ -5,19 +5,30 @@ namespace LineEndingNormalizer.Tests;
 /// <summary>
 /// Exhaustive round-trip testing of the TextEncoding/UtfUnknown-assisted
 /// legacy encoding detection path: for a wide range of legacy code pages,
-/// build representative multilingual text, run it through the real
-/// end-to-end pipeline (detection included, not bypassed), and verify
-/// that decoding the result under WHATEVER encoding was actually detected
-/// -- not necessarily the one the sample was originally written with --
-/// reproduces the original text exactly, with only line endings changed.
+/// build representative text, run it through the real end-to-end pipeline
+/// (detection included, not bypassed), and verify that decoding the result
+/// under WHATEVER encoding was actually detected -- not necessarily the one
+/// the sample was originally written with -- reproduces the original text
+/// exactly, with only line endings changed.
 ///
-/// Text is built from Unicode code point ranges rather than typed literal
-/// characters in this source file, deliberately: this repository's tool
-/// chain has repeatedly mangled literal non-ASCII characters (especially
-/// rare control/separator code points) written through file-editing tools
-/// earlier in this project's history. Constructing text from numeric code
-/// points keeps this file's own bytes plain ASCII, immune to that failure
-/// mode, while still exercising genuine script-specific characters.
+/// Samples are real language text. They were previously built by cycling
+/// Unicode code point ranges, which kept this file's own bytes ASCII but
+/// produced text resembling no language's letter-frequency distribution.
+/// UtfUnknown is frequency-based, so ten of these tests had to be skipped:
+/// the detector either declined to guess or guessed a different code page,
+/// and the skip reasons recorded the hypothesis that the samples, not the
+/// product, were at fault. Replacing them with real sentences resolved all
+/// ten -- every code page below now detects and round-trips losslessly.
+///
+/// The reason the old approach avoided literals still stands: this tool
+/// chain has mangled literal non-ASCII written through file-editing tools
+/// before, most recently turning private-use characters into empty strings.
+/// Ordinary script letters have proven durable where invisible code points
+/// did not, but that is an observation rather than a guarantee, so
+/// SamplesAreIntact below fails loudly if any sample is ever emptied,
+/// stripped of its non-ASCII content, or made unrepresentable in its own
+/// code page. Without it, mangling would silently turn these into ASCII
+/// round-trip tests that pass while proving nothing.
 /// </summary>
 public sealed class LegacyEncodingCorpusTests
 {
@@ -26,132 +37,87 @@ public sealed class LegacyEncodingCorpusTests
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 
+    #region Language samples
+
+    private const string Russian =
+        "Все счастливые семьи похожи друг на друга, каждая несчастливая семья " +
+        "несчастлива по-своему. Всё смешалось в доме Облонских. Жена узнала, " +
+        "что муж был в связи с бывшею в их доме француженкою гувернанткой.";
+
+    private const string Western =
+        "L'été dernier, à Paris, nous avons mangé des crêpes délicieuses près " +
+        "de la Seine. Grüße aus München, wo die Straßen im Frühling schön " +
+        "sind. El niño pequeño comió una manzana roja en el jardín.";
+
+    private const string Turkish =
+        "Türkçe cümlelerde ünlü uyumu çok önemlidir ve öğrenciler bunu erken " +
+        "öğrenir. İstanbul'da güzel bir gün geçirdik, Boğaz'da çay içtik ve " +
+        "şehrin tarihî yapılarını gezdik.";
+
+    private const string CentralEuropean =
+        "Zażółć gęślą jaźń, powiedział wesoły chłopiec na łące pełnej kwiatów. " +
+        "Příliš žluťoučký kůň úpěl ďábelské ódy a všichni se divili tomu zvuku.";
+
+    private const string Greek =
+        "Η ελληνική γλώσσα έχει μακρά ιστορία και πλούσια γραμματολογική " +
+        "παράδοση. Οι αρχαίοι φιλόσοφοι έγραψαν σημαντικά έργα που " +
+        "μελετώνται ακόμη και σήμερα σε όλο τον κόσμο.";
+
+    private const string Hebrew =
+        "השפה העברית היא שפה שמית עתיקה המדוברת בישראל על ידי מיליוני אנשים. " +
+        "היא נכתבת מימין לשמאל ויש לה אלפבית בן עשרים ושתיים אותיות.";
+
+    private const string Arabic =
+        "اللغة العربية من أكثر اللغات انتشارا في العالم ويتحدث بها مئات " +
+        "الملايين من الناس في مختلف الدول. ولها تاريخ طويل وأدب غني جدا.";
+
+    private const string Baltic =
+        "Lietuvių kalba yra viena seniausių gyvųjų indoeuropiečių kalbų " +
+        "pasaulyje ir ją vartoja apie tris milijonus žmonių. Latviešu valoda " +
+        "arī pieder pie baltu valodu grupas.";
+
+    private const string Thai =
+        "ภาษาไทยเป็นภาษาราชการของประเทศไทยและมีระบบเสียงวรรณยุกต์ที่ซับซ้อน " +
+        "คนไทยใช้ภาษาไทยในชีวิตประจำวันและในการเรียนการสอนทุกระดับ";
+
+    private const string Japanese =
+        "日本語は日本で話されている言語であり、漢字とひらがなとカタカナを使います。" +
+        "東京の桜が咲く春の季節には、多くの人が公園に集まって花見を楽しみます。";
+
+    private const string Korean =
+        "한국어는 한반도에서 사용되는 언어이며 한글이라는 고유한 문자를 사용합니다. " +
+        "세종대왕이 훈민정음을 창제한 이후 한글은 널리 쓰이게 되었습니다.";
+
+    private const string ChineseSimplified =
+        "汉语是世界上使用人数最多的语言之一，简体中文在中国大陆广泛使用。" +
+        "许多学生从小就开始学习汉字，并且通过阅读来提高自己的语言能力。";
+
+    private const string ChineseTraditional =
+        "漢語是世界上使用人數最多的語言之一，繁體中文在台灣和香港廣泛使用。" +
+        "許多學生從小就開始學習漢字，並且透過閱讀來提高自己的語言能力。";
+
+    #endregion
+
+    #region Helpers
+
     /// <summary>
-    /// Builds a multi-hundred-character sample text using code points from
-    /// the given ranges, word-grouped with spaces/punctuation for
-    /// realism, repeated to comfortably exceed the ~512-byte size where
-    /// this project's entropy-based binary-rejection heuristic reliably
-    /// engages (see the false-positive-rate investigation this test file
-    /// accompanies) -- so this corpus exercises the "confidently detected,
-    /// real text" case, not the small-sample edge case.
-    ///
-    /// Only code points the target encoding can actually represent
-    /// (verified via strict encoding here) are used, so a test failure
-    /// can never be an artifact of asking .NET to encode something the
-    /// target code page never supported in the first place.
+    /// Repeats a sample with mixed line endings until it comfortably exceeds the
+    /// ~512-byte size where the entropy-based binary-rejection heuristic reliably
+    /// engages, so this corpus exercises the "confidently detected, real text"
+    /// case rather than the small-sample edge case.
     /// </summary>
-    private static string BuildSample(Encoding encoding, params (int start, int end)[] ranges)
+    private static string GrowSample(string sample)
     {
-        var candidates = new List<char>();
-        Span<byte> scratch = stackalloc byte[16];
-
-        foreach (var (start, end) in ranges)
-        {
-            for (int cp = start; cp <= end; cp++)
-            {
-                char c = (char)cp;
-
-                if (char.IsControl(c))
-                {
-                    continue;
-                }
-
-                //
-                // Some numeric sub-ranges of an otherwise-assigned Unicode
-                // block contain gaps -- code points Unicode itself never
-                // assigned (e.g. U+03A2 in the Greek block). For those,
-                // .NET's Encoder always substitutes '?' regardless of the
-                // configured EncoderFallback -- EncoderFallback.Exception
-                // does NOT throw for them, because they never reach the
-                // "can this encoding represent this real character" check
-                // at all. They must be filtered out explicitly, before
-                // even trying to encode, or they silently contaminate the
-                // sample with literal '?' bytes.
-                //
-                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) ==
-                    System.Globalization.UnicodeCategory.OtherNotAssigned)
-                {
-                    continue;
-                }
-
-                //
-                // A plain Encoding.GetBytes() call uses that encoding's own
-                // default (lenient, replacement) fallback and will NOT throw
-                // for an unrepresentable-but-assigned character -- it
-                // silently substitutes instead. An explicit strict Encoder
-                // is required to actually detect and exclude those...
-                //
-                // ...except that EncoderFallback.ExceptionFallback ITSELF
-                // does not reliably throw either, for CodePagesEncodingProvider
-                // -backed encodings: .NET applies a "best fit" substitution
-                // table before the fallback is ever consulted. Confirmed
-                // directly for Big5: U+4E02 (not in cp950's real repertoire)
-                // silently encodes to a bare '?' (0x3F) with
-                // EncoderFallback.ExceptionFallback set and no exception
-                // thrown -- the same class of bug as the earlier
-                // windows-874/koi8-r encoder collisions found while
-                // assessing byte-level CR/LF scanning safety, just showing
-                // up for CJK ranges instead of two obscure symbols.
-                //
-                // The only reliable test is a round-trip: encode, then
-                // decode the result back with the SAME encoding, and check
-                // it reproduces the original character. A best-fit
-                // substitution fails this (decoding 0x3F gives back '?',
-                // not the original char), so it's correctly excluded.
-                //
-                Encoder encoder = encoding.GetEncoder();
-                encoder.Fallback = EncoderFallback.ExceptionFallback;
-
-                try
-                {
-                    int written = encoder.GetBytes([c], scratch, flush: true);
-
-                    string roundTripped = encoding.GetString(scratch[..written]);
-
-                    if (roundTripped.Length == 1 && roundTripped[0] == c)
-                    {
-                        candidates.Add(c);
-                    }
-                }
-                catch (EncoderFallbackException)
-                {
-                    // Not representable in this code page; skip it.
-                }
-            }
-        }
-
-        Assert.True(candidates.Count >= 8, "Not enough representable characters found to build a sample.");
-
         var sb = new StringBuilder();
         var lineBreaks = new[] { "\n", "\r\n", "\r" };
-        int breakIndex = 0;
-        int wordLen = 0;
+        int i = 0;
 
-        // Repeat/cycle the candidate characters into "words" and lines
-        // until comfortably past the entropy-check size threshold.
-        for (int i = 0; sb.Length < 900; i++)
+        // All three line-ending styles appear, so normalization has real work to do.
+        while (sb.Length < 900)
         {
-            char c = candidates[i % candidates.Count];
-            sb.Append(c);
-            wordLen++;
-
-            if (wordLen >= 6)
-            {
-                wordLen = 0;
-
-                if ((i / 6) % 5 == 4)
-                {
-                    sb.Append(lineBreaks[breakIndex % lineBreaks.Length]);
-                    breakIndex++;
-                }
-                else
-                {
-                    sb.Append(' ');
-                }
-            }
+            sb.Append(sample).Append(lineBreaks[i % lineBreaks.Length]);
+            i++;
         }
-
-        sb.Append('\n');
 
         return sb.ToString();
     }
@@ -197,11 +163,14 @@ public sealed class LegacyEncodingCorpusTests
     /// does not assume matches <paramref name="writeEncoding"/> -- exactly
     /// reproduces the original text with only line endings changed.
     /// </summary>
-    private static void AssertRoundTripsLosslessly(Encoding writeEncoding, string sampleName, (int start, int end)[] ranges)
+    private static void AssertRoundTripsLosslessly(
+        Encoding writeEncoding,
+        string sampleName,
+        string languageSample)
     {
         using var dir = new TempDirectory();
 
-        string original = BuildSample(writeEncoding, ranges);
+        string original = GrowSample(languageSample);
         byte[] source = writeEncoding.GetBytes(original);
 
         string path = dir.WriteFile(sampleName + ".txt", source);
@@ -257,181 +226,145 @@ public sealed class LegacyEncodingCorpusTests
         return n;
     }
 
+    #endregion
+
+    #region Fixture integrity
+
+    public static IEnumerable<object[]> AllSamples() =>
+    [
+        ["windows-1251", Russian], ["koi8-r", Russian],
+        ["windows-1252", Western], ["iso-8859-1", Western],
+        ["windows-1254", Turkish], ["windows-1250", CentralEuropean],
+        ["windows-1253", Greek], ["windows-1255", Hebrew],
+        ["windows-1256", Arabic], ["windows-1257", Baltic],
+        ["windows-874", Thai], ["shift_jis", Japanese],
+        ["euc-kr", Korean], ["gb2312", ChineseSimplified],
+        ["big5", ChineseTraditional],
+    ];
+
+    [Theory]
+    [MemberData(nameof(AllSamples))]
+    public void SamplesAreIntact(string charset, string sample)
+    {
+        // Guards against the tool chain silently mangling the literals above. Without
+        // this, an emptied or ASCII-flattened sample would turn every test below into a
+        // trivial ASCII round trip that passes while proving nothing.
+        //
+        // Thresholds sit just under the measured minimums across all fifteen samples
+        // (shortest 63 chars, fewest 12 non-ASCII - CJK samples are short because the
+        // script is dense, and Lithuanian carries few diacritics per sentence). They are
+        // deliberately loose: the job is to catch a sample that lost its script content,
+        // not to police how much of it each language happens to use.
+        Assert.False(string.IsNullOrWhiteSpace(sample));
+        Assert.True(sample.Length >= 50, $"{charset}: sample is suspiciously short.");
+
+        int nonAscii = sample.Count(c => c > 0x7F);
+        Assert.True(
+            nonAscii >= 10,
+            $"{charset}: only {nonAscii} non-ASCII characters; the script content looks lost.");
+
+        // And it must survive its own code page exactly, or a failure below would be a
+        // fixture artifact rather than a product result.
+        Encoding strict = Encoding.GetEncoding(
+            charset, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+
+        byte[] bytes = strict.GetBytes(sample);
+        Assert.Equal(sample, strict.GetString(bytes));
+    }
+
+    #endregion
+
     // ---- Single-byte code pages ----
 
-    private const string NotDetectedSkipReason =
-        "OPEN FINDING: TextEncoding.DetectFromStream returns null for this " +
-        "sample. Likely a test-data-realism limitation, not a product bug: " +
-        "UtfUnknown's detector is frequency/statistics-based and this " +
-        "sample is built by cycling a Unicode code-point range rather than " +
-        "real language text, so it may not resemble any language's letter " +
-        "frequency distribution closely enough for a confident guess -- " +
-        "declining to guess is the intended, safe behavior when uncertain. " +
-        "Re-enable with a real-language sample (not synthetic range-cycled " +
-        "text) to confirm one way or the other before trusting this as a " +
-        "true detection gap.";
-
-    // Formerly BypassedStrictDecodeSkipReason: DecoderFallback.ExceptionFallback
-    // does not reliably throw for CodePagesEncodingProvider-backed
-    // multi-byte legacy encodings (confirmed directly: Big5/Shift-JIS/
-    // EUC-KR decoders silently substitute '?' or a Private-Use-Area code
-    // point for malformed/out-of-repertoire sequences instead of throwing).
-    // Resolved, not worked around: LosslessFileWriter/NewLineNormalizer no
-    // longer decode legacy encodings at all for CR/LF normalization -- see
-    // WriteConvertedFileBytes/ScanLineEndingsBytes -- so this class of
-    // decoder unreliability no longer has anything to bypass. Big5 and
-    // Shift-JIS now pass as plain [Fact]s below.
-
-    private const string MisdetectedSkipReason =
-        "OPEN FINDING: TextEncoding.DetectFromStream detected a DIFFERENT " +
-        "(but still valid) encoding than the one this sample was written " +
-        "with -- e.g. EUC-KR text guessed as windows-1252. Same root cause " +
-        "as NotDetectedSkipReason: UtfUnknown is frequency/statistics-based " +
-        "and this sample is synthetic range-cycled text, not real language " +
-        "text, so it doesn't resemble any language's letter-frequency " +
-        "profile closely enough for a confident correct guess. This is a " +
-        "detection-accuracy limitation, not a conversion-safety bug: the " +
-        "byte-level CR/LF scan (WriteConvertedFileBytes) only ever touches " +
-        "literal 0x0D/0x0A bytes, which mean the same thing in every " +
-        "ASCII-compatible legacy encoding regardless of which one got " +
-        "guessed -- so a wrong guess cannot corrupt content, only mislabel " +
-        "it. Re-enable with a real-language sample to confirm one way or " +
-        "the other before trusting this as a true detection gap.";
-
-    [Fact(Skip = NotDetectedSkipReason)]
+    [Fact]
     public void Windows1251_Cyrillic_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding(1251),
-            "cp1251_cyrillic",
-            [(0x0410, 0x044F), (0x0401, 0x0401), (0x0451, 0x0451)]); // А-я, Ё, ё
+        AssertRoundTripsLosslessly(Encoding.GetEncoding(1251), "cp1251_cyrillic", Russian);
     }
 
-    [Fact(Skip = NotDetectedSkipReason)]
+    [Fact]
     public void KOI8R_Cyrillic_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding("koi8-r"),
-            "koi8r_cyrillic",
-            [(0x0410, 0x044F), (0x0401, 0x0401), (0x0451, 0x0451)]);
+        AssertRoundTripsLosslessly(Encoding.GetEncoding("koi8-r"), "koi8r_cyrillic", Russian);
     }
 
-    [Fact(Skip = NotDetectedSkipReason)]
+    [Fact]
     public void Windows1252_WesternEuropean_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding(1252),
-            "cp1252_western",
-            [(0x00C0, 0x00FF), (0x20AC, 0x20AC)]); // accented Latin-1 range + Euro sign
+        AssertRoundTripsLosslessly(Encoding.GetEncoding(1252), "cp1252_western", Western);
     }
 
-    [Fact(Skip = NotDetectedSkipReason)]
+    [Fact]
     public void Iso88591_Latin1_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding("iso-8859-1"),
-            "iso88591_latin1",
-            [(0x00C0, 0x00FF)]);
+        AssertRoundTripsLosslessly(Encoding.GetEncoding("iso-8859-1"), "iso88591_latin1", Western);
     }
 
     [Fact]
     public void Windows1253_Greek_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding(1253),
-            "cp1253_greek",
-            [(0x0391, 0x03A9), (0x03B1, 0x03C9)]); // Greek upper/lowercase
+        AssertRoundTripsLosslessly(Encoding.GetEncoding(1253), "cp1253_greek", Greek);
     }
 
-    [Fact(Skip = NotDetectedSkipReason)]
+    [Fact]
     public void Windows1254_Turkish_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding(1254),
-            "cp1254_turkish",
-            [(0x0041, 0x005A), (0x0061, 0x007A), (0x011E, 0x011F), (0x0130, 0x0131), (0x015E, 0x015F)]); // ASCII + ĞğİıŞş
+        AssertRoundTripsLosslessly(Encoding.GetEncoding(1254), "cp1254_turkish", Turkish);
     }
 
-    [Fact(Skip = NotDetectedSkipReason)]
+    [Fact]
     public void Windows1250_CentralEuropean_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding(1250),
-            "cp1250_central_european",
-            [(0x0100, 0x017F)]); // Latin Extended-A (covers Polish/Czech/etc. diacritics)
+        AssertRoundTripsLosslessly(Encoding.GetEncoding(1250), "cp1250_central_european", CentralEuropean);
     }
 
     [Fact]
     public void Windows1255_Hebrew_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding(1255),
-            "cp1255_hebrew",
-            [(0x05D0, 0x05EA)]); // Hebrew alphabet
+        AssertRoundTripsLosslessly(Encoding.GetEncoding(1255), "cp1255_hebrew", Hebrew);
     }
 
-    [Fact(Skip = NotDetectedSkipReason)]
+    [Fact]
     public void Windows1256_Arabic_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding(1256),
-            "cp1256_arabic",
-            [(0x0621, 0x064A)]); // Arabic letters
+        AssertRoundTripsLosslessly(Encoding.GetEncoding(1256), "cp1256_arabic", Arabic);
     }
 
-    [Fact(Skip = NotDetectedSkipReason)]
+    [Fact]
     public void Windows1257_Baltic_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding(1257),
-            "cp1257_baltic",
-            [(0x0100, 0x017F)]);
+        AssertRoundTripsLosslessly(Encoding.GetEncoding(1257), "cp1257_baltic", Baltic);
     }
 
-    [Fact(Skip = NotDetectedSkipReason)]
+    [Fact]
     public void Windows874_Thai_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding(874),
-            "cp874_thai",
-            [(0x0E01, 0x0E30)]); // Thai consonants/vowels
+        AssertRoundTripsLosslessly(Encoding.GetEncoding(874), "cp874_thai", Thai);
     }
 
-    // ---- Multi-byte legacy (DBCS) code pages ----
+    // ---- Multi-byte code pages ----
 
     [Fact]
     public void ShiftJis_Japanese_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding("shift_jis"),
-            "shiftjis_japanese",
-            [(0x3041, 0x3096), (0x30A1, 0x30FA)]); // Hiragana + Katakana
+        AssertRoundTripsLosslessly(Encoding.GetEncoding("shift_jis"), "shiftjis_japanese", Japanese);
     }
 
-    [Fact(Skip = MisdetectedSkipReason)]
+    [Fact]
     public void EucKr_Korean_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding("euc-kr"),
-            "euckr_korean",
-            [(0xAC00, 0xAC00 + 200)]); // Hangul syllables
+        AssertRoundTripsLosslessly(Encoding.GetEncoding("euc-kr"), "euckr_korean", Korean);
     }
 
     [Fact]
     public void Gbk_ChineseSimplified_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding("gbk"),
-            "gbk_chinese_simplified",
-            [(0x4E00, 0x4E00 + 200)]); // CJK Unified Ideographs
+        AssertRoundTripsLosslessly(Encoding.GetEncoding("gb2312"), "gbk_chinese_simplified", ChineseSimplified);
     }
 
     [Fact]
     public void Big5_ChineseTraditional_RoundTrips()
     {
-        AssertRoundTripsLosslessly(
-            Encoding.GetEncoding("big5"),
-            "big5_chinese_traditional",
-            [(0x4E00, 0x4E00 + 200)]);
+        AssertRoundTripsLosslessly(Encoding.GetEncoding("big5"), "big5_chinese_traditional", ChineseTraditional);
     }
 }
