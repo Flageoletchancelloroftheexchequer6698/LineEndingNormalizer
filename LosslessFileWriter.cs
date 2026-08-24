@@ -499,15 +499,36 @@ internal static class LosslessFileWriter
                     backupTempPath,
                     backupPath);
             }
-            finally
+            catch (Exception replaceEx) when (
+                replaceEx is IOException or UnauthorizedAccessException
+                    or ArgumentException or NotSupportedException)
             {
-                if (clearedAttributes is not null &&
-                    File.Exists(backupPath))
-                {
-                    File.SetAttributes(
-                        backupPath,
-                        clearedAttributes.Value);
-                }
+                // The replacement failure is the real error. Restoring ReadOnly from a
+                // plain finally would let a failing SetAttributes throw over it,
+                // reporting an attribute problem instead of why the backup actually
+                // failed, so the rollback is attempted here and only ever added as
+                // context.
+                string? rollbackError =
+                    TryRestoreBackupAttributes(backupPath, clearedAttributes);
+
+                if (rollbackError is null)
+                    throw;
+
+                throw new IOException(
+                    $"{replaceEx.Message} The previous backup's ReadOnly attribute " +
+                    $"could also not be restored: {rollbackError}",
+                    replaceEx);
+            }
+
+            // Replacement succeeded; a restoration failure here is the primary error.
+            string? restoreError =
+                TryRestoreBackupAttributes(backupPath, clearedAttributes);
+
+            if (restoreError is not null)
+            {
+                throw new IOException(
+                    $"The backup was written, but the previous backup's ReadOnly " +
+                    $"attribute could not be restored: {restoreError}");
             }
         }
         finally
@@ -1267,6 +1288,34 @@ internal static class LosslessFileWriter
     /// <summary>
     /// Atomically replaces the destination where supported.
     /// </summary>
+    /// <summary>
+    /// Restores previously cleared backup attributes, returning the failure message
+    /// instead of throwing so a caller can decide whether it outranks an error already
+    /// in flight.
+    /// </summary>
+    private static string? TryRestoreBackupAttributes(
+        string backupPath,
+        FileAttributes? clearedAttributes)
+    {
+        if (clearedAttributes is null)
+            return null;
+
+        try
+        {
+            if (File.Exists(backupPath))
+                File.SetAttributes(backupPath, clearedAttributes.Value);
+
+            return null;
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException
+                or ArgumentException or NotSupportedException)
+        {
+            return ex.Message;
+        }
+    }
+
+
     private static void AtomicReplace(
         string source,
         string destination)
