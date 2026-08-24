@@ -11,7 +11,7 @@
     <!-- Single authoritative version source: AssemblyVersion, AssemblyFileVersion, and
          AssemblyInformationalVersion are all derived from this by the SDK. Keep this,
          app.manifest's assemblyIdentity version, and the release tag in agreement. -->
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
