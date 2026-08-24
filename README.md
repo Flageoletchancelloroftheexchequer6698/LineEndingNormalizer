@@ -5,6 +5,13 @@ text file's encoding and line-ending style, and normalizes its line endings
 to CRLF, LF, or CR while preserving the file's encoding, byte-order mark,
 and metadata.
 
+LEN never changes a file's encoding — only its line endings. To convert
+between encodings, see the companion tool
+[EncodingChecker](https://github.com/amrali-eg/EncodingChecker), which
+detects, validates, and converts text encodings from a Windows GUI or
+command line. The two share a deliberately compatible
+[exit-code scheme](#exit-codes) so one CI script can drive both.
+
 ## Overview
 
 LEN:
