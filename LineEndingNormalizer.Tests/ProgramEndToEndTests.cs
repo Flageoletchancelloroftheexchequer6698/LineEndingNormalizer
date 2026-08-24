@@ -239,7 +239,8 @@ public sealed class ProgramEndToEndTests
             out _,
             out _);
 
-        Assert.Equal(4, exitCode);
+        // 2, matching EncodingChecker's -FailOnChanges (see ExitCodeContractTests).
+        Assert.Equal(2, exitCode);
     }
 
     [Fact]
@@ -292,7 +293,7 @@ public sealed class ProgramEndToEndTests
                 out _,
                 out string stderr);
 
-            Assert.Equal(5, exitCode);
+            Assert.Equal(6, exitCode);
             Assert.Contains("reparse point", stderr, StringComparison.OrdinalIgnoreCase);
         }
         finally
@@ -314,7 +315,7 @@ public sealed class ProgramEndToEndTests
         int exitCode = RunMain([flag], out string stdout, out _);
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("LineEndingNormalizer v1.0", stdout);
+        Assert.Contains("LineEndingNormalizer v1.1", stdout);
         Assert.Contains("Usage:", stdout);
     }
 }

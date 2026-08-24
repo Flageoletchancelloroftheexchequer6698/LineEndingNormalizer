@@ -84,7 +84,7 @@ referenced source files for the exact logic.
   the original is left untouched. A previously read-only `.bak` is still
   replaced correctly.
 - `-BasePath` itself is rejected if it is a symbolic link, junction, or other
-  reparse point (exit code 5). Reparse-point subdirectories are skipped
+  reparse point (exit code 6). Reparse-point subdirectories are skipped
   during traversal, and a file that is (or becomes) a reparse point is
   rejected at the point of conversion.
 - `.bak` files and LEN's own abandoned temporary files (left behind only if
@@ -235,11 +235,17 @@ source rather than being duplicated here.
 |---|---|
 | 0 | Clean run. |
 | 1 | Invalid command-line arguments. |
-| 2 | `-BasePath` directory does not exist. |
+| 2 | `-FailOnChanges` was set and at least one file required (or, under `-ValidateOnly`, failed) conversion. |
 | 3 | One or more files failed to process, or the `-Report` file could not be written. |
-| 4 | `-FailOnChanges` was set and at least one file required (or, under `-ValidateOnly`, failed) conversion. |
-| 5 | `-BasePath` is itself a symbolic link, junction, or other reparse point. |
-| 6 | The run was cancelled (Ctrl+C). |
+| 4 | The run was cancelled (Ctrl+C). |
+| 5 | `-BasePath` directory does not exist. |
+| 6 | `-BasePath` is itself a symbolic link, junction, or other reparse point. |
+
+Codes `0`–`4` are identical to
+[EncodingChecker](https://github.com/amrali-eg/EncodingChecker)'s, so a script
+driving both tools can share one exit-code mapping. Codes `5` and `6` refine
+cases EncodingChecker reports as `1`, so no code means two different things
+across the two tools — treat `1`, `5`, and `6` alike to handle both.
 
 ## Requirements
 

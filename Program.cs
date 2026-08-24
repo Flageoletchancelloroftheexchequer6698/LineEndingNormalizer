@@ -10,6 +10,10 @@ namespace LineEndingNormalizer;
 /// </summary>
 internal static class Program
 {
+    // Codes 0-4 match EncodingChecker's, so a script driving both tools can share one
+    // exit-code mapping. 5 and 6 refine cases EncodingChecker reports as 1; no code
+    // means two different things across the two tools.
+
     /// <summary>
     /// Successful completion.
     /// </summary>
@@ -21,9 +25,9 @@ internal static class Program
     private const int ExitInvalidArguments = 1;
 
     /// <summary>
-    /// Base directory does not exist.
+    /// -FailOnChanges detected files requiring conversion.
     /// </summary>
-    private const int ExitDirectoryNotFound = 2;
+    private const int ExitChangesNeeded = 2;
 
     /// <summary>
     /// Processing or reporting errors occurred.
@@ -31,19 +35,21 @@ internal static class Program
     private const int ExitProcessingErrors = 3;
 
     /// <summary>
-    /// -FailOnChanges detected files requiring conversion.
-    /// </summary>
-    private const int ExitChangesNeeded = 4;
-
-    /// <summary>
-    /// -BasePath is a reparse point.
-    /// </summary>
-    private const int ExitReparsePointRoot = 5;
-
-    /// <summary>
     /// Scan cancelled by Ctrl+C.
     /// </summary>
-    private const int ExitCancelled = 6;
+    private const int ExitCancelled = 4;
+
+    /// <summary>
+    /// Base directory does not exist. EncodingChecker reports this as
+    /// <see cref="ExitInvalidArguments"/>.
+    /// </summary>
+    private const int ExitDirectoryNotFound = 5;
+
+    /// <summary>
+    /// -BasePath is a reparse point. EncodingChecker reports this as
+    /// <see cref="ExitInvalidArguments"/>.
+    /// </summary>
+    private const int ExitReparsePointRoot = 6;
 
     /// <summary>
     /// Serializes console output from parallel processing.
@@ -136,7 +142,7 @@ internal static class Program
 
             var statistics = new Statistics();
 
-            Console.WriteLine("Line Ending Normalizer v1.0");
+            Console.WriteLine("Line Ending Normalizer v1.1");
             Console.WriteLine("Base path : {0}", options.BasePath);
             Console.WriteLine(
                 "Patterns  : {0}",
@@ -1397,7 +1403,7 @@ internal static class Program
     {
         Console.WriteLine(
             """
-            LineEndingNormalizer v1.0
+            LineEndingNormalizer v1.1
 
             Usage:
 
@@ -1473,10 +1479,11 @@ internal static class Program
                        under -Validate, fails) conversion. Useful as a CI
                        gate, optionally with -WhatIf or -Validate.
 
-            Exit codes: 0 = clean; 1 = usage/argument error; 2 = base directory
-            not found; 3 = one or more files failed to process; 4 =
-            -FailOnChanges triggered; 5 = -BasePath is a reparse point; 6 =
-            cancelled (Ctrl+C).
+            Exit codes: 0 = clean; 1 = usage/argument error; 2 = -FailOnChanges
+            triggered; 3 = one or more files failed to process, or the -Report
+            file could not be written; 4 = cancelled (Ctrl+C); 5 = base
+            directory not found; 6 = -BasePath is a reparse point. Codes 0-4
+            match EncodingChecker's.
 
             Examples:
 
