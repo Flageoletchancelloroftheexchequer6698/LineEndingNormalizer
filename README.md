@@ -9,7 +9,10 @@ LEN never changes a file's encoding — only its line endings. To convert
 between encodings, see the companion tool
 [EncodingChecker](https://github.com/amrali-eg/EncodingChecker), which
 detects, validates, and converts text encodings from a Windows GUI or
-command line. The two share a deliberately compatible
+command line; its
+[latest release](https://github.com/amrali-eg/EncodingChecker/releases/latest)
+publishes framework-dependent and self-contained Windows builds, the same two
+shapes as LEN's. The pair share a deliberately compatible
 [exit-code scheme](#exit-codes) so one CI script can drive both.
 
 ## Overview
