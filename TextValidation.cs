@@ -1,4 +1,3 @@
-using System;
 using System.Buffers;
 using System.Globalization;
 using System.Text;
@@ -157,11 +156,10 @@ internal static class TextValidation
                 //
                 // Rejecting on the first private-use scalar made a whole file
                 // undetectable over one character - icon-font glyphs in markup are the
-                // common case - so its line endings were never normalized. It did so
-                // inconsistently too, since only the first 500 scalars are examined, so
-                // the same character later in the file was accepted. Excluding them
-                // still rejects a buffer that is largely private-use, which is the
-                // binary evidence the check exists to find.
+                // common case - and did so inconsistently, since only the first 500
+                // scalars are examined, so the same character later in the file was
+                // accepted. Excluding them still rejects a buffer that is largely
+                // private-use, which is the binary evidence the check exists to find.
                 //
                 case UnicodeCategory.PrivateUse:
                 case UnicodeCategory.Control:

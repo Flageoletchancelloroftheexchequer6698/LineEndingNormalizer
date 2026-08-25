@@ -1,7 +1,5 @@
-﻿using System;
-using System.Text;
+﻿using System.Text;
 using System.Buffers;
-using System.IO;
 using UtfUnknown;
 
 namespace LineEndingNormalizer;
