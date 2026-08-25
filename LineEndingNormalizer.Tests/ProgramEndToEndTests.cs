@@ -315,7 +315,7 @@ public sealed class ProgramEndToEndTests
         int exitCode = RunMain([flag], out string stdout, out _);
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("LineEndingNormalizer v1.2", stdout);
+        Assert.Contains("LineEndingNormalizer v1.3", stdout);
         Assert.Contains("Usage:", stdout);
     }
 }
