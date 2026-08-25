@@ -142,7 +142,7 @@ internal static class Program
 
             var statistics = new Statistics();
 
-            Console.WriteLine("Line Ending Normalizer v1.2");
+            Console.WriteLine("Line Ending Normalizer v1.3");
             Console.WriteLine("Base path : {0}", options.BasePath);
             Console.WriteLine(
                 "Patterns  : {0}",
@@ -1403,7 +1403,7 @@ internal static class Program
     {
         Console.WriteLine(
             """
-            LineEndingNormalizer v1.2
+            LineEndingNormalizer v1.3
 
             Usage:
 
