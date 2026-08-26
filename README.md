@@ -70,7 +70,13 @@ referenced source files for the exact logic.
 - Unicode files are decoded and re-encoded with a strict decoder/encoder
   (`DecoderFallback.ExceptionFallback` / `EncoderFallback.ExceptionFallback`):
   malformed input is rejected, never silently replaced or corrupted
-  (`ScanEngine.cs`, `LosslessFileWriter.cs`).
+  (`ScanEngine.cs`, `LosslessFileWriter.cs`). Both paths reach a codec only for
+  the six code pages `TextEncoding.IsUnicodeEncoding` admits, each verified to
+  honour that assignment; `TextValidation`, which is handed arbitrary legacy
+  encodings, rebuilds the encoding with its fallbacks supplied up front
+  (`TextEncoding.Strict`) because the assignment alone is silently ignored for
+  `CodePagesEncodingProvider` encodings — see the
+  [independent audit](#independent-audit).
 - Legacy encodings are only normalized as raw bytes when verified safe: every
   single-byte code page is checked generically (CR/LF must decode to their
   ASCII byte values), and multi-byte code pages require explicit membership
@@ -108,6 +114,76 @@ referenced source files for the exact logic.
   within a single file's conversion; a cancelled run never leaves a
   half-written destination, because the destination is only ever touched by
   the final atomic install step.
+
+## Independent audit
+
+The detection pipeline LEN shares with
+[EncodingChecker](https://github.com/amrali-eg/EncodingChecker) is audited against
+four public corpora — **5,078 files** — by a separate harness:
+**[CorpusTesters](https://github.com/amrali-eg/CorpusTesters)**.
+
+Ground truth comes from each corpus's own manifest or catalogue, never from
+filenames. Source corpora are treated as read-only and verified untouched after
+every run against their published SHA-256 hashes.
+
+### Why LEN's exposure is narrower than a detector score suggests
+
+LEN **never changes a file's encoding**, and for legacy files it never decodes
+them at all. That removes most of the failure modes a detection score implies:
+
+| Input | What LEN does | Data-loss surface |
+|---|---|---|
+| Unicode | Strict decode → normalize → re-encode in the **same** encoding → hash-verify | Only the strict decode, which rejects malformed input rather than replacing it. No codec-mismatch failure mode: the re-encode targets the encoding the file already had. |
+| Legacy | Raw byte scan. Only `0x0D`/`0x0A` are ever rewritten; every other byte is copied through untouched | None from codecs — nothing is decoded or re-encoded |
+
+The byte path is gated, not assumed. Single-byte encodings are verified at
+runtime to map `0x0D`/`0x0A` to CR/LF, which makes byte scanning provably safe
+when every byte is one character. Multi-byte encodings must appear in an explicit
+allowlist — Shift-JIS, EUC-KR, EUC-JP, GBK, GB18030, Big5 — each verified not to
+emit `0x0D`/`0x0A` inside a multi-byte sequence. Anything else is treated as
+undetected and left alone (`TextEncoding.IsSafeLegacyEncoding`).
+
+The practical consequence: **naming the wrong single-byte code page does not
+change which bytes are CR or LF**, so a misdetection that would corrupt a file
+under an encoding converter is normally harmless here. LEN's safety margin comes
+from doing less, not from a better detector — it is the same detector.
+
+### Detection results
+
+Scored per encoding class, micro-averaged over every class the detector can
+claim:
+
+| Corpus | Files | Accuracy | FPR | FNR |
+|---|---:|---:|---:|---:|
+| [UnicodeTestSuite v3.0](https://github.com/amrali-eg/UnicodeTestSuite) | 1,359 | **96.62%** | 0.11% | 2.23% |
+| [chardet `test-data`](https://github.com/chardet/test-data) | 3,137 | **89.26%** | 0.46% | 10.77% |
+
+On UnicodeTestSuite the errors have a favourable shape: all 17 false positives
+are `Binary` fixtures — files the corpus declares as not-text — and all 29 false
+negatives were reported as *undetected* rather than as a wrong encoding. The
+detector never mislabels a real text file as the wrong encoding on that corpus,
+and declining is the safe failure, since LEN leaves what it cannot name untouched.
+
+### What it found
+
+The audit found that assigning `Decoder.Fallback` after `GetDecoder()` is
+silently ignored for `CodePagesEncodingProvider` encodings, which left
+`TextValidation` confirming codecs that could not actually read the file. Fixed
+in v1.4.0 ([#9](https://github.com/amrali-eg/LineEndingNormalizer/pull/9)).
+
+`LosslessFileWriter` and `ScanEngine` were **not** affected: both reach a decoder
+only behind `TextEncoding.IsUnicodeEncoding`, and all six code pages on that
+whitelist do honour the assignment — verified empirically rather than assumed.
+That makes the whitelist load-bearing, so the test suite now asserts both halves
+of it: every admitted code page honours the assigned fallback, and legacy code
+pages are rejected by the guard.
+
+### Scope
+
+The audit measures EncodingChecker's converter end to end; it does **not**
+exercise LEN's writer. The two share a detector, so the detection results above
+apply to both, but LEN's normalization path is covered by its own test suite and
+by the structural argument above rather than by these corpus runs.
 
 ## Command-line usage
 
