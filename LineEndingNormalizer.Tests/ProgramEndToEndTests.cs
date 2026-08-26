@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 namespace LineEndingNormalizer.Tests;
 
@@ -315,7 +315,7 @@ public sealed class ProgramEndToEndTests
         int exitCode = RunMain([flag], out string stdout, out _);
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("LineEndingNormalizer v1.3", stdout);
+        Assert.Contains("LineEndingNormalizer v1.4", stdout);
         Assert.Contains("Usage:", stdout);
     }
 }
